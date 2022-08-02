@@ -23,6 +23,15 @@ int read_png(char *fname, png_data_t data) {
     return 1;
   }
 
+  // verify PNG signature in first 8 bytes
+  png_byte sig[8];
+  fread(sig, 1, 8, fp);
+  if (png_sig_cmp(sig, 0, 8)) {
+    fprintf(stderr, "Not a valid PNG file\n");
+    fclose(fp);
+    return 1;
+  }
+
   data->png_ptr =
       png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
   if (!data->png_ptr) {
