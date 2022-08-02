@@ -200,9 +200,9 @@ def diff_block_test(arr, diff_bits=4):
     print("compression ratio", sum(chan_costs) / (worst_chan_cost * 3))
 
 
-def moving_avg_test(arr, diff_bits=3, window_size=8):
+def moving_avg_test(arr, diff_bits=3, rle_bits=0):
     # rotate arr right 90 degrees
-    arr = np.rot90(arr, k=1)
+    # arr = np.rot90(arr, k=1)
 
     rows, cols = arr.shape[:2]
     total_pixels = rows * cols
@@ -211,12 +211,13 @@ def moving_avg_test(arr, diff_bits=3, window_size=8):
 
     # raw value is 00 ########
     # same as moving avg is 01
-    # positive diff is 10 diff_bits
+    # positive diff with moving avg is 10 diff_bits
     # negative diff is 11 diff_bits
     raw_val_width = BITS_PER_CHAN + 2
     diff_width = diff_bits + 2
-    same_val_width = 2
+    rle_width = rle_bits + 2
     worst_chan_cost = total_pixels * raw_val_width
+    max_run_len = 2**rle_bits
 
     chan_costs = [0] * N_CHANNELS
     n_same_vals = [0] * N_CHANNELS
@@ -224,35 +225,41 @@ def moving_avg_test(arr, diff_bits=3, window_size=8):
     n_raw_vals = [0] * N_CHANNELS
 
     for chan in range(N_CHANNELS):
-        # sliding_window = np.full((window_size,), np.nan)
-        median = 0
+        avg = 0  # not actually, but something like that
+        run_len = 0
         for idx in range(linear_idx(rows - 1, cols - 1, arr)):
             r, c = np_idx(idx, arr)
             current = arr[r, c, chan]
-            # if idx < window_size:
             if idx == 0:
                 chan_costs[chan] += raw_val_width
                 n_raw_vals[chan] += 1
-                med = current
+                avg = current
             else:
-                # median = np.nanmedian(sliding_window)
-                diff = current - median
-                if diff == 0:
-                    chan_costs[chan] += same_val_width
-                    n_same_vals[chan] += 1
-                elif diff <= max_diff and diff >= min_diff:
-                    chan_costs[chan] += diff_width
-                    n_diff_vals[chan] += 1
+                if current == avg:
+                    run_len += 1
+                    if run_len == 1:
+                        chan_costs[chan] += rle_width
+                        n_same_vals[chan] += 1
+                    elif run_len == max_run_len:
+                        run_len = 0
+                        chan_costs[chan] += raw_val_width
+                        n_raw_vals[chan] += 1
+                    else:
+                        # we just increment the RLE - no effect on cost
+                        pass
                 else:
-                    chan_costs[chan] += raw_val_width
-                    n_raw_vals[chan] += 1
+                    diff = current - avg
+                    if diff <= max_diff and diff >= min_diff:
+                        chan_costs[chan] += diff_width
+                        n_diff_vals[chan] += 1
+                    else:
+                        chan_costs[chan] += raw_val_width
+                        n_raw_vals[chan] += 1
 
-            median += (current - median) // 2
+            prev_val = current
+            avg += (current - avg) // 2
 
-            # sliding_window = np.roll(sliding_window, -1)
-            # sliding_window[-1] = current
-
-    print("MOVING MEDIAN")
+    print("MOVING AVG")
     print("total pixels", rows * cols)
     print("worst channel cost", worst_chan_cost)
     print("chan costs", chan_costs)
