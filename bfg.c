@@ -146,12 +146,12 @@ png_data_t libpng_read(char *fpath) {
  * Allocates and populates bfg data struct with data from libpng data struct.
  * Returns struct on success, NULL on failure.
  */
-bfg_data_t libpng_decode(png_data_t png) {
+bfg_raw_t libpng_decode(png_data_t png) {
   if (!png) {
     return NULL;
   }
 
-  bfg_data_t bfg = BFG_MALLOC(sizeof(struct bfg_data));
+  bfg_raw_t bfg = BFG_MALLOC(sizeof(struct bfg_raw));
   if (!bfg) {
     return NULL;
   }
@@ -159,25 +159,6 @@ bfg_data_t libpng_decode(png_data_t png) {
   bfg->width = png_get_image_width(png->png_ptr, png->info_ptr);
   bfg->height = png_get_image_height(png->png_ptr, png->info_ptr);
   bfg->n_channels = png_get_channels(png->png_ptr, png->info_ptr);
-
-  png_byte color_type = png_get_color_type(png->png_ptr, png->info_ptr);
-  switch (color_type) {
-  case PNG_COLOR_TYPE_GRAY:
-    bfg->color_type = GRAY;
-    break;
-  case PNG_COLOR_TYPE_GRAY_ALPHA:
-    bfg->color_type = GRAY_ALPHA;
-    break;
-  case PNG_COLOR_TYPE_RGB:
-    bfg->color_type = RGB;
-    break;
-  case PNG_COLOR_TYPE_RGB_ALPHA:
-    bfg->color_type = RGB_ALPHA;
-    break;
-  default:
-    fprintf(stderr, "Unsupported color type %d\n", color_type);
-    return NULL;
-  }
 
   bfg->pixels = BFG_MALLOC(bfg->width * bfg->height * bfg->n_channels);
   if (!bfg->pixels) {
@@ -201,7 +182,7 @@ bfg_data_t libpng_decode(png_data_t png) {
  * struct and writes it to the file specified by fpath.
  * Returns 0 on success, nonzero on failure
  */
-int libpng_write(char *fpath, bfg_data_t bfg) {
+int libpng_write(char *fpath, bfg_raw_t bfg) {
   if (!bfg) {
     return 1;
   }
@@ -211,7 +192,7 @@ int libpng_write(char *fpath, bfg_data_t bfg) {
     return 1;
   }
 
-  png->row_ptrs = NULL; // won't need this, initialize anyway
+  png->row_ptrs = NULL; // won't need this, don't leave uninitialized though
   png->file_mode = 'w';
   png->fp = fopen(fpath, "wb");
   if (!png->fp) {
@@ -233,21 +214,22 @@ int libpng_write(char *fpath, bfg_data_t bfg) {
   png_init_io(png->png_ptr, png->fp);
 
   png_byte color_type;
-  switch (bfg->color_type) {
-  case GRAY:
+  switch (bfg->n_channels) {
+  case 1:
     color_type = PNG_COLOR_TYPE_GRAY;
     break;
-  case GRAY_ALPHA:
+  case 2:
     color_type = PNG_COLOR_TYPE_GRAY_ALPHA;
     break;
-  case RGB:
+  case 3:
     color_type = PNG_COLOR_TYPE_RGB;
     break;
-  case RGB_ALPHA:
+  case 4:
     color_type = PNG_COLOR_TYPE_RGB_ALPHA;
     break;
   default:
-    fprintf(stderr, "Unsupported color type %d\n", bfg->color_type);
+    fprintf(stderr, "Image with %d channels not supported by png\n",
+            bfg->n_channels);
     return 1;
   }
 
@@ -269,7 +251,8 @@ int libpng_write(char *fpath, bfg_data_t bfg) {
 
 // TODO: BFG FUNCTIONS
 
-void bfg_free(bfg_data_t bfg) {
+/* Frees everything allocated within the bfg data struct. */
+void bfg_free(bfg_raw_t bfg) {
   if (!bfg) {
     return;
   }
@@ -278,9 +261,9 @@ void bfg_free(bfg_data_t bfg) {
   BFG_FREE(bfg);
 }
 
-bfg_data_t bfg_read(char *fpath) { return 0; }
+int bfg_encode(bfg_raw_t bfg, uint8_t *encoded) {}
 
-int bfg_write(char *fpath, bfg_data_t bfg) { return 0; }
+bfg_raw_t bfg_read(char *fpath) { return 0; }
 
 int main(int argc, char **argv) {
   if (argc != 2) {
@@ -289,10 +272,10 @@ int main(int argc, char **argv) {
   }
 
   png_data_t png = libpng_read(argv[1]);
-  bfg_data_t bfg = libpng_decode(png);
+  bfg_raw_t bfg = libpng_decode(png);
   libpng_free(png);
-  png = libpng_write("bfg_out.png", bfg);
-  libpng_free(png);
+
+  libpng_write("bfg_out.png", bfg);
   bfg_free(bfg);
 
   return 0;

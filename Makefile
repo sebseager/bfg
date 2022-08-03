@@ -8,4 +8,4 @@ $(TARGET): bfg.c bfg.h
 
 .PHONY: clean
 clean:
-	$(RM) -r $(TARGET) $(TARGET).dSYM
+	$(RM) -r $(TARGET) $(TARGET).dSYM vgcore.*

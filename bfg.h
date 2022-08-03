@@ -27,6 +27,8 @@ TODO<>
 
 */
 
+#include <stdint.h>
+
 /* Optionally provide custom malloc and free implementations. */
 #ifndef BFG_MALLOC
 #define BFG_MALLOC(sz) malloc(sz)
@@ -35,20 +37,29 @@ TODO<>
 #define BFG_FREE(ptr) free(ptr)
 #endif
 
-#define BFG_MAGIC_WORD (0xBF6F)
+#define BFG_MAGIC_TAG ({'b', 'f', 'g', 'f'})
 #define BFG_BIT_DEPTH (8)
 
-typedef enum {
+typedef enum __attribute__((packed)) {
   GRAY,
   GRAY_ALPHA,
   RGB,
   RGB_ALPHA,
 } bfg_color_type_t;
 
-typedef struct bfg_data {
-  unsigned long long width;
-  unsigned long long height;
-  unsigned int n_channels;
-  bfg_color_type_t color_type;
-  unsigned char *pixels;
-} * bfg_data_t;
+typedef struct bfg_raw {
+  uint32_t width;
+  uint32_t height;
+  uint8_t n_channels;
+  uint8_t *pixels;
+} * bfg_raw_t;
+
+typedef struct bfg_encoded {
+  uint8_t magic_tag[4];
+  uint32_t width;
+  uint32_t height;
+  uint8_t n_channels;
+  uint8_t channel_depth;
+  uint8_t color_mode; // 
+
+} * bfg_encoded_t;
