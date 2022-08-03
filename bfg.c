@@ -1,5 +1,4 @@
 #include "bfg.h"
-#include "png.h"
 #include <png.h>
 #include <stdio.h>
 #include <stdlib.h>
