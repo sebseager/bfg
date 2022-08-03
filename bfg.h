@@ -36,6 +36,7 @@ TODO<>
 #endif
 
 #define BFG_MAGIC_WORD (0xBF6F)
+#define BFG_BIT_DEPTH (8)
 
 typedef enum {
   GRAY,
