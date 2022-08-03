@@ -282,17 +282,8 @@ int main(int argc, char **argv) {
   }
 
   png_data_t png = libpng_read(argv[1]);
-
-  if (!png) {
-    return 1;
-  }
-
-  png_uint_32 height = png_get_image_height(png->png_ptr, png->info_ptr);
-  png_uint_32 width = png_get_image_width(png->png_ptr, png->info_ptr);
-  png_byte bit_depth = png_get_bit_depth(png->png_ptr, png->info_ptr);
-  png_byte color_type = png_get_color_type(png->png_ptr, png->info_ptr);
-  png_byte n_channels = png_get_channels(png->png_ptr, png->info_ptr);
-  printf("%d %d %d %d %d\n", height, width, bit_depth, color_type, n_channels);
+  bfg_data_t bfg = libpng_decode(png);
+  libpng_write("/Users/seb/Downloads/bfg_out.png", bfg);
 
   return 0;
 }
