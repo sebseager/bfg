@@ -1,4 +1,31 @@
-#define BFG_MAGIC 0xBF6F
+/*
+
+BFG - Bloody Fast Graphics format for lossless image compression.
+
+Seb Seager
+
+
+## License
+
+Copyright (c) 2022, Seb Seager.
+
+<>
+
+
+## Motivation
+
+<>
+
+
+## Format
+
+TODO<>
+
+
+
+##
+
+*/
 
 /* Optionally provide custom malloc and free implementations. */
 #ifndef BFG_MALLOC
@@ -7,3 +34,20 @@
 #ifndef BFG_FREE
 #define BFG_FREE(ptr) free(ptr)
 #endif
+
+#define BFG_MAGIC_WORD (0xBF6F)
+
+typedef enum {
+  GRAY,
+  GRAY_ALPHA,
+  RGB,
+  RGB_ALPHA,
+} bfg_color_type_t;
+
+typedef struct bfg_data {
+  unsigned long long width;
+  unsigned long long height;
+  unsigned int n_channels;
+  bfg_color_type_t color_type;
+  unsigned char *pixels;
+} * bfg_data_t;

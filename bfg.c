@@ -1,28 +1,16 @@
+#include "bfg.h"
+#include "png.h"
 #include <png.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#define FLAT_INDEX(x, y, w) ((y) * (w) + (x))
 
 typedef struct png_data {
   png_structp png_ptr;
   png_infop info_ptr;
   png_bytep *row_ptrs;
 } * png_data_t;
-
-typedef enum { GRAY, GRAY_ALPHA, RGB, RGB_ALPHA } bfg_color_type_t;
-
-/*
- * Representation in memory of a decoded BFG image.
- */
-typedef struct bfg_data {
-  uint32_t width;
-  uint32_t height;
-  uint8_t bit_depth;
-  uint8_t n_channels;
-  bfg_color_type_t color_type;
-  uint8_t palette_len;
-  uint8_t *pixels;
-  uint8_t *palette;
-} * bfg_data_t;
 
 /*
  * Allocates png data struct and reads png file at fpath into it using the
@@ -69,8 +57,8 @@ png_data_t libpng_read(char *fpath) {
   // don't access info_ptr directly
   png_uint_32 height = png_get_image_height(png->png_ptr, png->info_ptr);
   png->row_ptrs = malloc(sizeof(png_bytep) * height);
-  for (png_uint_32 i = 0; i < height; i++) {
-    png->row_ptrs[i] = malloc(png_get_rowbytes(png->png_ptr, png->info_ptr));
+  for (png_uint_32 y = 0; y < height; y++) {
+    png->row_ptrs[y] = malloc(png_get_rowbytes(png->png_ptr, png->info_ptr));
   }
 
   // libpng specifies several options for image color type:
@@ -97,6 +85,7 @@ png_data_t libpng_read(char *fpath) {
   // realizing png_set_expand() existed for that purpose exactly. RTFM.
 
   png_set_expand(png->png_ptr);
+  png_set_strip_16(png->png_ptr);
   png_read_update_info(png->png_ptr, png->info_ptr);
 
   // must not happen before png_set_expand
@@ -110,11 +99,57 @@ png_data_t libpng_read(char *fpath) {
  * Allocates and populates bfg data struct with data from libpng data struct.
  * Returns NULL on failure.
  */
-bfg_data_t libpng_decode(png_data_t png) { return NULL; }
+bfg_data_t libpng_decode(png_data_t png) {
+  bfg_data_t bfg = malloc(sizeof(struct bfg_data));
+  if (!bfg) {
+    fprintf(stderr, "bfg_data malloc failed\n");
+    return NULL;
+  }
+
+  bfg->width = png_get_image_width(png->png_ptr, png->info_ptr);
+  bfg->height = png_get_image_height(png->png_ptr, png->info_ptr);
+  bfg->n_channels = png_get_channels(png->png_ptr, png->info_ptr);
+
+  png_byte color_type = png_get_color_type(png->png_ptr, png->info_ptr);
+  switch (color_type) {
+  case PNG_COLOR_TYPE_GRAY:
+    bfg->color_type = GRAY;
+    break;
+  case PNG_COLOR_TYPE_GRAY_ALPHA:
+    bfg->color_type = GRAY_ALPHA;
+    break;
+  case PNG_COLOR_TYPE_RGB:
+    bfg->color_type = RGB;
+    break;
+  case PNG_COLOR_TYPE_RGB_ALPHA:
+    bfg->color_type = RGB_ALPHA;
+    break;
+  default:
+    fprintf(stderr, "Unsupported color type %d\n", color_type);
+    return NULL;
+  }
+
+  bfg->pixels = malloc(bfg->width * bfg->height * bfg->n_channels);
+  if (!bfg->pixels) {
+    fprintf(stderr, "bfg_data pixels malloc failed\n");
+    return NULL;
+  }
+
+  png_uint_32 row_bytes = bfg->width * bfg->n_channels;
+  for (png_uint_32 y = 0; y < bfg->height; y++) {
+    for (png_uint_32 x = 0; x < row_bytes; x += bfg->n_channels) {
+      for (int c = 0; c < bfg->n_channels; c++) {
+        bfg->pixels[FLAT_INDEX(x + c, y, row_bytes)] = png->row_ptrs[y][x + c];
+      }
+    }
+  }
+
+  return bfg;
+}
 
 /*
- * Allocates and populates libpng data struct with data from bfg data struct.
- * Returns NULL on failure.
+ * Allocates and populates libpng data struct with data from bfg data
+ * struct. Returns NULL on failure.
  */
 png_data_t libpng_encode(bfg_data_t bfg) { return NULL; }
 
@@ -124,14 +159,10 @@ png_data_t libpng_encode(bfg_data_t bfg) { return NULL; }
  */
 int libpng_write(char *fpath, png_data_t png) { return 0; }
 
-/*
- * Frees everything allocated within the data struct by libpng.
- */
+/* Frees everything allocated within the data struct by libpng. */
 void libpng_free(png_data_t png) {
   png_free_data(png->png_ptr, png->info_ptr, PNG_FREE_ALL, -1);
 }
-
-// TODO: BFG FUNCTIONS START HERE
 
 bfg_data_t bfg_read(char *fpath) { return 0; }
 
