@@ -256,8 +256,12 @@ int libpng_write(char *fpath, bfg_data_t bfg) {
     return 1;
   }
 
+  printf("color type is %d\n", color_type);
+  printf("num channels is %d\n", bfg->n_channels);
+
+  png_uint_32 row_bytes = bfg->width * bfg->n_channels;
   for (png_uint_32 y = 0; y < bfg->height; y++) {
-    for (png_uint_32 x = 0; x < bfg->width; x += bfg->n_channels) {
+    for (png_uint_32 x = 0; x < row_bytes; x += bfg->n_channels) {
       for (unsigned int c = 0; c < bfg->n_channels; c++) {
         row[x + c] = bfg->pixels[FLAT_INDEX(x, y, bfg->width)];
       }
