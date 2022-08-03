@@ -1,5 +1,4 @@
 #include "bfg.h"
-#include "png.h"
 #include <png.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -86,14 +85,6 @@ png_data_t libpng_read(char *fpath) {
   png_set_sig_bytes(png->png_ptr, 8); // we've already read these 8 bytes
   png_read_info(png->png_ptr, png->info_ptr);
 
-  // don't access info_ptr directly
-  png_uint_32 height = png_get_image_height(png->png_ptr, png->info_ptr);
-  png->row_ptrs = BFG_MALLOC(sizeof(png_bytep) * height);
-  for (png_uint_32 y = 0; y < height; y++) {
-    png->row_ptrs[y] =
-        BFG_MALLOC(png_get_rowbytes(png->png_ptr, png->info_ptr));
-  }
-
   // libpng specifies several options for image color type:
   //   0  PNG_COLOR_TYPE_GRAY         1 channel
   //   2  PNG_COLOR_TYPE_RGB          3 channels
@@ -129,8 +120,18 @@ png_data_t libpng_read(char *fpath) {
   // update info struct to reflect modifications
   png_read_update_info(png->png_ptr, png->info_ptr);
 
+  printf("color type %d\n", png_get_color_type(png->png_ptr, png->info_ptr));
+
+  png_uint_32 height = png_get_image_height(png->png_ptr, png->info_ptr);
+  png_uint_32 row_bytes = png_get_rowbytes(png->png_ptr, png->info_ptr);
+  png->row_ptrs = BFG_MALLOC(sizeof(png_bytep) * height);
+  for (png_uint_32 y = 0; y < height; y++) {
+    png->row_ptrs[y] = BFG_MALLOC(row_bytes);
+  }
+
   // must not happen before png_set_expand
   png_read_image(png->png_ptr, png->row_ptrs);
+  png_read_end(png->png_ptr, png->info_ptr);
 
   fclose(png->fp);
   png->fp = NULL;
@@ -172,6 +173,8 @@ bfg_data_t libpng_decode(png_data_t png) {
     return NULL;
   }
 
+  printf("color type %d, %d channels\n", color_type, bfg->n_channels);
+
   bfg->pixels = BFG_MALLOC(bfg->width * bfg->height * bfg->n_channels);
   if (!bfg->pixels) {
     fprintf(stderr, "bfg_data pixels malloc failed\n");
@@ -183,6 +186,7 @@ bfg_data_t libpng_decode(png_data_t png) {
     for (png_uint_32 x = 0; x < row_bytes; x += bfg->n_channels) {
       for (unsigned int c = 0; c < bfg->n_channels; c++) {
         bfg->pixels[FLAT_INDEX(x + c, y, row_bytes)] = png->row_ptrs[y][x + c];
+        // printf("%lu ", sizeof(unsigned char));
       }
     }
   }
@@ -275,6 +279,8 @@ int libpng_write(char *fpath, bfg_data_t bfg) {
   return 0;
 }
 
+// TODO: BFG FUNCTIONS
+
 bfg_data_t bfg_read(char *fpath) { return 0; }
 
 int bfg_write(char *fpath, bfg_data_t bfg) { return 0; }
@@ -287,7 +293,10 @@ int main(int argc, char **argv) {
 
   png_data_t png = libpng_read(argv[1]);
   bfg_data_t bfg = libpng_decode(png);
-  libpng_write("/Users/seb/Downloads/bfg_out.png", bfg);
+  libpng_free(png);
+  if (bfg) {
+    libpng_write("/Users/seb/Downloads/bfg_out.png", bfg);
+  }
 
   return 0;
 }
