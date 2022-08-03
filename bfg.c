@@ -28,55 +28,22 @@ typedef struct bfg_data {
  * Standardize the row_ptrs array in png_data_t to contain all available color
  * and alpha information, expanding any references to header tables.
  *
- * libpng specifies several color_type options:
- *   0  PNG_COLOR_TYPE_GRAY         1 channel
- *   2  PNG_COLOR_TYPE_RGB          3 channels
- *   3  PNG_COLOR_TYPE_PALETTE      1 channel
- *   4  PNG_COLOR_TYPE_GRAY_ALPHA   2 channels
- *   6  PNG_COLOR_TYPE_RGB_ALPHA    4 channels
- *
- * For PNG_COLOR_TYPE_GRAY the file header may contain a tRNS chunk containing a
- * single two-byte gray level value between 0 to (2^bitdepth)-1. If bitdepth <
- * 16, then least significant bits are filled first. All pixel values matching
- * this gray level are transparent (alpha = 0); all others are opaque (alpha =
- * (2^bitdepth)-1).
- *
- * For PNG_COLOR_TYPE_RGB the file header may contain a six-byte tRNS chunk (one
- * word for each R, G, B) to encode a color level. As with PNG_COLOR_TYPE_GRAY,
- * each channel value ranges from 0 to (2^bitdepth)-1, and is stored at the
- * least significant end of its respective word.
- *
- * For PNG_COLOR_TYPE_PALETTE, each image pixel is a single byte index into a
- * PLTE table at the beginning of the file. Each PLTE entry is fixed at 3 bytes
- * (one per 8-bit RGB channel) no matter the bit depth, and there can be at most
- * 256 entries. To encode transparency, the file may also contain a tRNS table
- * with up to 256 1-byte entries (0 to 255), each encoding an alpha value for
- * the corresponding palette entry. If there are fewer tRNS entries than PLTE
- * entries, remaining alpha values are assumed to be 255 (opaque).
- *
- * I'll be honest, I was just about to implement the transformations from PLTE
- * and tRNS chunks to raw color and/or alpha values from scratch before
- * realizing png_set_expand() existed. RTFM.
- *
- * After standardize_png, color_type will be either 0, 2, 4, or 6 with 1, 3, 2,
- * and 4 channels respectively.
+
  */
-int libpng_standardize(png_data_t png) {
-  png_set_expand(png->png_ptr); // expand PLTE and tRNS tables as needed
-  png_read_update_info(png->png_ptr, png->info_ptr); // update info_ptr
-  return 0;
-}
+int libpng_standardize(png_data_t png) { return 0; }
 
 /*
- * Reads png file at fpath into png_data_t using the libpng API.
- * Caller is responsible for freeing the struct with libpng_free.
+ * Allocates png data struct and reads png file at fpath into it using the
+ * libpng API. Caller is responsible for freeing the struct with libpng_free.
  */
-int libpng_read(char *fpath, png_data_t png) {
+png_data_t libpng_read(char *fpath) {
   FILE *fp = fopen(fpath, "rb");
   if (!fp) {
     fprintf(stderr, "Could not open file %s\n", fpath);
-    return 1;
+    return NULL;
   }
+
+  png_data_t png = malloc(sizeof(struct png_data));
 
   // verify png signature in first 8 bytes
   png_byte sig[8];
@@ -84,7 +51,7 @@ int libpng_read(char *fpath, png_data_t png) {
   if (png_sig_cmp(sig, 0, 8)) {
     fprintf(stderr, "Not a valid png file\n");
     fclose(fp);
-    return 1;
+    return NULL;
   }
 
   png->png_ptr =
@@ -92,7 +59,7 @@ int libpng_read(char *fpath, png_data_t png) {
   if (!png->png_ptr) {
     fprintf(stderr, "png_create_read_struct failed\n");
     fclose(fp);
-    return 1;
+    return NULL;
   }
 
   png->info_ptr = png_create_info_struct(png->png_ptr);
@@ -100,7 +67,7 @@ int libpng_read(char *fpath, png_data_t png) {
     fprintf(stderr, "png_create_info_struct failed\n");
     png_destroy_read_struct(&png->png_ptr, NULL, NULL);
     fclose(fp);
-    return 1;
+    return NULL;
   }
 
   png_init_io(png->png_ptr, fp);
@@ -114,17 +81,37 @@ int libpng_read(char *fpath, png_data_t png) {
     png->row_ptrs[i] = malloc(png_get_rowbytes(png->png_ptr, png->info_ptr));
   }
 
-  if (libpng_standardize(png)) {
-    fprintf(stderr, "standardize_png failed\n");
-    png_destroy_read_struct(&png->png_ptr, &png->info_ptr, NULL);
-    fclose(fp);
-    return 1;
-  }
+  // libpng specifies several options for image color type:
+  //   0  PNG_COLOR_TYPE_GRAY         1 channel
+  //   2  PNG_COLOR_TYPE_RGB          3 channels
+  //   3  PNG_COLOR_TYPE_PALETTE      1 channel
+  //   4  PNG_COLOR_TYPE_GRAY_ALPHA   2 channels
+  //   6  PNG_COLOR_TYPE_RGB_ALPHA    4 channels
+  //
+  // Encodings of type 0 and 2 may contain a tRNS chunk in the header holding a
+  // single pixel value (either a two-byte gray value or three two-byte values
+  // for RGB). If this chunk is present, all image pixels matching this value
+  // should be transparent (alpha = 0), and all other pixels should have alpha =
+  // (2^bitdepth)-1 (opaque).
+  //
+  // Encodings of type 3 contain a palette table (PLTE header chunk) with up to
+  // 256 3-byte entries representing all possible colors in the image.
+  // Individual pixel values are indexes into this table. A tRNS chunk may also
+  // be present, but in this case is a table with at most one entry per palette
+  // color, indicating the alpha of that color everywhere.
+  //
+  // I'll be honest, I was just about to implement the transformations from PLTE
+  // and tRNS chunks to raw color and/or alpha values from scratch before
+  // realizing png_set_expand() existed for that purpose exactly. RTFM.
 
+  png_set_expand(png->png_ptr);
+  png_read_update_info(png->png_ptr, png->info_ptr);
+
+  // must not happen before png_set_expand
   png_read_image(png->png_ptr, png->row_ptrs);
 
   fclose(fp);
-  return 0;
+  return png;
 }
 
 /*
@@ -154,7 +141,9 @@ void libpng_free(png_data_t png) {
 
 // TODO: BFG FUNCTIONS START HERE
 
+bfg_data_t bfg_read(char *fpath) { return 0; }
 
+int bfg_write(char *fpath, bfg_data_t bfg) { return 0; }
 
 int main(int argc, char **argv) {
   if (argc != 2) {
@@ -162,8 +151,9 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  png_data_t png = malloc(sizeof(struct png_data));
-  if (libpng_read(argv[1], png)) {
+  png_data_t png = libpng_read(argv[1]);
+
+  if (!png) {
     return 1;
   }
 
