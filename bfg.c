@@ -1,14 +1,15 @@
 #include "bfg.h"
 #include <png.h>
-#include <pngconf.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define FLAT_INDEX(x, y, w) ((y) * (w) + (x))
+#define FCLOSE(fp) ((fp) ? fclose(fp) : 0, (fp) = NULL)
 
 typedef struct png_data {
   FILE *fp;
-  char png_structp_type; // either 'r' for read or 'w' for write
+  char file_mode; // either 'r' for read or 'w' for write
   png_structp png_ptr;
   png_infop info_ptr;
   png_bytep *row_ptrs;
@@ -16,23 +17,31 @@ typedef struct png_data {
 
 /* Frees everything allocated within the libpng data struct. */
 void libpng_free(png_data_t png) {
-  if (png->fp) {
-    fclose(png->fp);
+  if (!png) {
+    return;
   }
 
-  if (png) {
-    if (png->info_ptr) {
-      png_free_data(png->png_ptr, png->info_ptr, PNG_FREE_ALL, -1);
-    }
-    if (png->png_ptr) {
-      if (png->png_structp_type == 'w') {
-        png_destroy_write_struct(&png->png_ptr, NULL);
-      } else if (png->png_structp_type == 'r') {
-        png_destroy_read_struct(&png->png_ptr, NULL, NULL);
+  FCLOSE(png->fp);
+
+  if (png->row_ptrs) {
+    png_uint_32 height = png_get_image_height(png->png_ptr, png->info_ptr);
+    for (int y = 0; y < height; y++) {
+      if (png->row_ptrs[y]) {
+        BFG_FREE(png->row_ptrs[y]);
       }
     }
-    if (png->row_ptrs) {
-      BFG_FREE(png->row_ptrs);
+    BFG_FREE(png->row_ptrs);
+  }
+
+  if (png->info_ptr) {
+    png_free_data(png->png_ptr, png->info_ptr, PNG_FREE_ALL, -1);
+  }
+
+  if (png->png_ptr) {
+    if (png->file_mode == 'w') {
+      png_destroy_write_struct(&png->png_ptr, &png->info_ptr);
+    } else if (png->file_mode == 'r') {
+      png_destroy_read_struct(&png->png_ptr, &png->info_ptr, NULL);
     }
   }
 
@@ -50,7 +59,7 @@ png_data_t libpng_read(char *fpath) {
     return NULL;
   }
 
-  png->png_structp_type = 'r';
+  png->file_mode = 'r';
   png->fp = fopen(fpath, "rb");
   if (!png->fp) {
     fprintf(stderr, "Could not open file %s\n", fpath);
@@ -128,18 +137,20 @@ png_data_t libpng_read(char *fpath) {
   // must not happen before png_set_expand
   png_read_image(png->png_ptr, png->row_ptrs);
   png_read_end(png->png_ptr, png->info_ptr);
-
-  fclose(png->fp);
-  png->fp = NULL;
+  FCLOSE(png->fp);
 
   return png;
 }
 
 /*
  * Allocates and populates bfg data struct with data from libpng data struct.
- * Returns NULL on failure.
+ * Returns struct on success, NULL on failure.
  */
 bfg_data_t libpng_decode(png_data_t png) {
+  if (!png) {
+    return NULL;
+  }
+
   bfg_data_t bfg = BFG_MALLOC(sizeof(struct bfg_data));
   if (!bfg) {
     return NULL;
@@ -188,15 +199,20 @@ bfg_data_t libpng_decode(png_data_t png) {
 /*
  * Allocates and populates libpng data struct with data from bfg data
  * struct and writes it to the file specified by fpath.
- * Returns 0 on success, nonzero on failure.
+ * Returns 0 on success, nonzero on failure
  */
 int libpng_write(char *fpath, bfg_data_t bfg) {
+  if (!bfg) {
+    return 1;
+  }
+
   png_data_t png = BFG_MALLOC(sizeof(struct png_data));
   if (!png) {
     return 1;
   }
 
-  png->png_structp_type = 'w';
+  png->row_ptrs = NULL; // won't need this, initialize anyway
+  png->file_mode = 'w';
   png->fp = fopen(fpath, "wb");
   if (!png->fp) {
     fprintf(stderr, "Could not write to %s\n", fpath);
@@ -238,27 +254,29 @@ int libpng_write(char *fpath, bfg_data_t bfg) {
   png_set_IHDR(png->png_ptr, png->info_ptr, bfg->width, bfg->height,
                BFG_BIT_DEPTH, color_type, PNG_INTERLACE_NONE,
                PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
-
   png_write_info(png->png_ptr, png->info_ptr);
-
-  png->row_ptrs = BFG_MALLOC(bfg->height * sizeof(png_bytep));
-  if (!png->row_ptrs) {
-    return 1;
-  }
 
   png_uint_32 row_bytes = bfg->width * bfg->n_channels;
   for (png_uint_32 y = 0; y < bfg->height; y++) {
-    png->row_ptrs[y] = bfg->pixels + FLAT_INDEX(0, y, row_bytes);
+    png_write_row(png->png_ptr, bfg->pixels + FLAT_INDEX(0, y, row_bytes));
   }
 
-  png_write_image(png->png_ptr, png->row_ptrs);
   png_write_end(png->png_ptr, NULL);
-
   libpng_free(png);
+
   return 0;
 }
 
 // TODO: BFG FUNCTIONS
+
+void bfg_free(bfg_data_t bfg) {
+  if (!bfg) {
+    return;
+  }
+
+  BFG_FREE(bfg->pixels);
+  BFG_FREE(bfg);
+}
 
 bfg_data_t bfg_read(char *fpath) { return 0; }
 
@@ -273,9 +291,9 @@ int main(int argc, char **argv) {
   png_data_t png = libpng_read(argv[1]);
   bfg_data_t bfg = libpng_decode(png);
   libpng_free(png);
-  if (bfg) {
-    libpng_write("bfg_out.png", bfg);
-  }
+  png = libpng_write("bfg_out.png", bfg);
+  libpng_free(png);
+  bfg_free(bfg);
 
   return 0;
 }
