@@ -25,14 +25,6 @@ typedef struct bfg_data {
 } * bfg_data_t;
 
 /*
- * Standardize the row_ptrs array in png_data_t to contain all available color
- * and alpha information, expanding any references to header tables.
- *
-
- */
-int libpng_standardize(png_data_t png) { return 0; }
-
-/*
  * Allocates png data struct and reads png file at fpath into it using the
  * libpng API. Caller is responsible for freeing the struct with libpng_free.
  */
