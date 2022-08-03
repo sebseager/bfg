@@ -1,3 +1,5 @@
 .vscode/
 *.dSYM
+vgcore.*
+*.png
 bfg

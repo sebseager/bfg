@@ -1,5 +1,6 @@
 #include "bfg.h"
 #include <png.h>
+#include <pngconf.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -46,7 +47,6 @@ void libpng_free(png_data_t png) {
 png_data_t libpng_read(char *fpath) {
   png_data_t png = BFG_MALLOC(sizeof(struct png_data));
   if (!png) {
-    fprintf(stderr, "Could not allocate png data struct\n");
     return NULL;
   }
 
@@ -69,14 +69,12 @@ png_data_t libpng_read(char *fpath) {
   png->png_ptr =
       png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
   if (!png->png_ptr) {
-    fprintf(stderr, "png_create_read_struct failed\n");
     libpng_free(png);
     return NULL;
   }
 
   png->info_ptr = png_create_info_struct(png->png_ptr);
   if (!png->info_ptr) {
-    fprintf(stderr, "png_create_info_struct failed\n");
     libpng_free(png);
     return NULL;
   }
@@ -120,11 +118,9 @@ png_data_t libpng_read(char *fpath) {
   // update info struct to reflect modifications
   png_read_update_info(png->png_ptr, png->info_ptr);
 
-  printf("color type %d\n", png_get_color_type(png->png_ptr, png->info_ptr));
-
   png_uint_32 height = png_get_image_height(png->png_ptr, png->info_ptr);
   png_uint_32 row_bytes = png_get_rowbytes(png->png_ptr, png->info_ptr);
-  png->row_ptrs = BFG_MALLOC(sizeof(png_bytep) * height);
+  png->row_ptrs = BFG_MALLOC(height * sizeof(png_bytep));
   for (png_uint_32 y = 0; y < height; y++) {
     png->row_ptrs[y] = BFG_MALLOC(row_bytes);
   }
@@ -146,7 +142,6 @@ png_data_t libpng_read(char *fpath) {
 bfg_data_t libpng_decode(png_data_t png) {
   bfg_data_t bfg = BFG_MALLOC(sizeof(struct bfg_data));
   if (!bfg) {
-    fprintf(stderr, "bfg_data malloc failed\n");
     return NULL;
   }
 
@@ -173,11 +168,8 @@ bfg_data_t libpng_decode(png_data_t png) {
     return NULL;
   }
 
-  printf("color type %d, %d channels\n", color_type, bfg->n_channels);
-
   bfg->pixels = BFG_MALLOC(bfg->width * bfg->height * bfg->n_channels);
   if (!bfg->pixels) {
-    fprintf(stderr, "bfg_data pixels malloc failed\n");
     return NULL;
   }
 
@@ -186,7 +178,6 @@ bfg_data_t libpng_decode(png_data_t png) {
     for (png_uint_32 x = 0; x < row_bytes; x += bfg->n_channels) {
       for (unsigned int c = 0; c < bfg->n_channels; c++) {
         bfg->pixels[FLAT_INDEX(x + c, y, row_bytes)] = png->row_ptrs[y][x + c];
-        // printf("%lu ", sizeof(unsigned char));
       }
     }
   }
@@ -202,27 +193,24 @@ bfg_data_t libpng_decode(png_data_t png) {
 int libpng_write(char *fpath, bfg_data_t bfg) {
   png_data_t png = BFG_MALLOC(sizeof(struct png_data));
   if (!png) {
-    fprintf(stderr, "png_data malloc failed\n");
     return 1;
   }
 
   png->png_structp_type = 'w';
   png->fp = fopen(fpath, "wb");
   if (!png->fp) {
-    fprintf(stderr, "Could not open %s for writing\n", fpath);
+    fprintf(stderr, "Could not write to %s\n", fpath);
     return 1;
   }
 
   png->png_ptr =
       png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
   if (!png->png_ptr) {
-    fprintf(stderr, "png_create_write_struct failed\n");
     return 1;
   }
 
   png->info_ptr = png_create_info_struct(png->png_ptr);
   if (!png->info_ptr) {
-    fprintf(stderr, "png_create_info_struct failed\n");
     return 1;
   }
 
@@ -253,26 +241,17 @@ int libpng_write(char *fpath, bfg_data_t bfg) {
 
   png_write_info(png->png_ptr, png->info_ptr);
 
-  // write pixels one row at a time
-  png_bytep row = BFG_MALLOC(bfg->width * bfg->n_channels * sizeof(png_byte));
-  if (!row) {
-    fprintf(stderr, "png_data row malloc failed\n");
+  png->row_ptrs = BFG_MALLOC(bfg->height * sizeof(png_bytep));
+  if (!png->row_ptrs) {
     return 1;
   }
 
-  printf("color type is %d\n", color_type);
-  printf("num channels is %d\n", bfg->n_channels);
-
   png_uint_32 row_bytes = bfg->width * bfg->n_channels;
   for (png_uint_32 y = 0; y < bfg->height; y++) {
-    for (png_uint_32 x = 0; x < row_bytes; x += bfg->n_channels) {
-      for (unsigned int c = 0; c < bfg->n_channels; c++) {
-        row[x + c] = bfg->pixels[FLAT_INDEX(x, y, row_bytes)];
-      }
-    }
-    png_write_row(png->png_ptr, row);
+    png->row_ptrs[y] = bfg->pixels + FLAT_INDEX(0, y, row_bytes);
   }
 
+  png_write_image(png->png_ptr, png->row_ptrs);
   png_write_end(png->png_ptr, NULL);
 
   libpng_free(png);
@@ -295,7 +274,7 @@ int main(int argc, char **argv) {
   bfg_data_t bfg = libpng_decode(png);
   libpng_free(png);
   if (bfg) {
-    libpng_write("/Users/seb/Downloads/bfg_out.png", bfg);
+    libpng_write("bfg_out.png", bfg);
   }
 
   return 0;
