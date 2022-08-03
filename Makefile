@@ -1,5 +1,5 @@
 CC ?= gcc
-CFLAGS = -Wall -Wextra -O3 -g3
+CFLAGS = -std=c99 -pedantic -Wall -Wextra -O3 -g3
 LFLAGS = -lpng
 TARGET = bfg
 
