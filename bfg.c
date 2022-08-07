@@ -1,11 +1,26 @@
 #include "bfg.h"
+#include <limits.h>
 #include <png.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#define HIGH_3_BIT_MASK (0xE0)
+#define LOW_5_BIT_MASK (0x1F)
+
 #define FLAT_INDEX(x, y, w) ((y) * (w) + (x))
 #define FCLOSE(fp) ((fp) ? fclose(fp) : 0, (fp) = NULL)
+#define BIT_MASK(width, offset) ((~(~0ULL << (width)) << (offset)))
+
+// write n bits of value to byte_ptr, shifted offset bits to the left
+// so if *p = 0b0100001, after WRITE_BITS(p, 0b101, 3, 2), *p = 0b0110101
+#define WRITE_BITS(byte_ptr, value, width, offset)                             \
+  ((*(uint8_t *)(byte_ptr)) =                                                  \
+       (((*(uint8_t *)(byte_ptr)) & ~BIT_MASK((width), (offset))) |            \
+        (BIT_MASK((width), (offset)) & ((value) << (offset)))))
+
+#define TWO_POWER(pow) (1 << (pow))
+#define PROD_FITS_TYPE(a, b, max_val) ((a) > (max_val) / (b) ? 0 : 1)
 
 typedef struct png_data {
   FILE *fp;
@@ -48,11 +63,9 @@ void libpng_free(png_data_t png) {
   BFG_FREE(png);
 }
 
-/*
- * Allocates png data struct and reads png file at fpath into it using the
+/* Allocates png data struct and reads png file at fpath into it using the
  * libpng API. Caller is responsible for freeing the struct with libpng_free.
- * Returns NULL on failure.
- */
+ * Returns NULL on failure. */
 png_data_t libpng_read(char *fpath) {
   png_data_t png = BFG_MALLOC(sizeof(struct png_data));
   if (!png) {
@@ -142,10 +155,8 @@ png_data_t libpng_read(char *fpath) {
   return png;
 }
 
-/*
- * Allocates and populates bfg data struct with data from libpng data struct.
- * Returns struct on success, NULL on failure.
- */
+/* Allocates and populates bfg data struct with data from libpng data struct.
+ * Returns struct on success, NULL on failure. */
 bfg_raw_t libpng_decode(png_data_t png) {
   if (!png) {
     return NULL;
@@ -160,7 +171,14 @@ bfg_raw_t libpng_decode(png_data_t png) {
   bfg->height = png_get_image_height(png->png_ptr, png->info_ptr);
   bfg->n_channels = png_get_channels(png->png_ptr, png->info_ptr);
 
-  bfg->pixels = BFG_MALLOC(bfg->width * bfg->height * bfg->n_channels);
+  const uint32_t total_px = bfg->width * bfg->height;
+  const uint32_t total_bytes = total_px * bfg->n_channels;
+  if (!PROD_FITS_TYPE(bfg->width, bfg->height, UINT32_MAX) ||
+      !PROD_FITS_TYPE(total_px, bfg->n_channels, UINT32_MAX)) {
+    return NULL;
+  }
+
+  bfg->pixels = BFG_MALLOC(total_bytes);
   if (!bfg->pixels) {
     return NULL;
   }
@@ -177,11 +195,9 @@ bfg_raw_t libpng_decode(png_data_t png) {
   return bfg;
 }
 
-/*
- * Allocates and populates libpng data struct with data from bfg data
+/* Allocates and populates libpng data struct with data from bfg data
  * struct and writes it to the file specified by fpath.
- * Returns 0 on success, nonzero on failure
- */
+ * Returns 0 on success, nonzero on failure. */
 int libpng_write(char *fpath, bfg_raw_t bfg) {
   if (!bfg) {
     return 1;
@@ -234,7 +250,7 @@ int libpng_write(char *fpath, bfg_raw_t bfg) {
   }
 
   png_set_IHDR(png->png_ptr, png->info_ptr, bfg->width, bfg->height,
-               BFG_BIT_DEPTH, color_type, PNG_INTERLACE_NONE,
+               BFG_CHANNEL_DEPTH_BYTES * 8, color_type, PNG_INTERLACE_NONE,
                PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
   png_write_info(png->png_ptr, png->info_ptr);
 
@@ -249,7 +265,7 @@ int libpng_write(char *fpath, bfg_raw_t bfg) {
   return 0;
 }
 
-// TODO: BFG FUNCTIONS
+// TODO: MAKE BFG FUNCS NEW FILE
 
 /* Frees everything allocated within the bfg data struct. */
 void bfg_free(bfg_raw_t bfg) {
@@ -261,7 +277,120 @@ void bfg_free(bfg_raw_t bfg) {
   BFG_FREE(bfg);
 }
 
-int bfg_encode(bfg_raw_t bfg, uint8_t *encoded) {}
+int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
+  if (!raw || !enc) {
+    return 1;
+  }
+
+  if (!raw->width || !raw->height || !raw->n_channels) {
+    return 1;
+  }
+
+  enc->magic_tag = BFG_MAGIC_TAG;
+  enc->width = raw->width;
+  enc->height = raw->height;
+  enc->n_channels = raw->n_channels;
+  enc->byte_depth = BFG_CHANNEL_DEPTH_BYTES;
+  enc->color_mode = 0; // this doesn't do anything at the moment
+
+  const uint32_t total_px = enc->width * enc->height;
+  const uint32_t total_values = total_px * enc->n_channels;
+  const uint32_t total_bytes = total_values * enc->byte_depth;
+  if (!PROD_FITS_TYPE(enc->width, enc->height, UINT32_MAX) ||
+      !PROD_FITS_TYPE(total_px, enc->n_channels, UINT32_MAX) ||
+      !PROD_FITS_TYPE(total_values, enc->byte_depth, UINT32_MAX)) {
+    return 1;
+  }
+
+  enc->image = BFG_MALLOC(total_bytes);
+  if (!enc->image) {
+    return 1;
+  }
+
+  const uint32_t max_short_run_len = TWO_POWER(BFG_BLOCK_HEADER_VALUE_BITS);
+  const uint32_t max_long_run_len = TWO_POWER(BFG_BLOCK_HEADER_VALUE_BITS + 8);
+
+  for (unsigned int c = 0; c < enc->n_channels; c++) {
+    bfg_block_type_t active_block = BFG_BLOCK_NONE;
+    uint32_t block_header_index = 0;
+    uint32_t block_len = 0;
+    uint32_t read_i = 0;
+    uint32_t write_i = 0;
+
+    uint8_t prev[2] = {0};
+    uint8_t curr = raw->pixels[0 + c];
+    uint8_t next[2];
+    if (total_px > 1) {
+      next[0] = raw->pixels[1 * enc->n_channels + c];
+    }
+    if (total_px > 2) {
+      next[1] = raw->pixels[2 * enc->n_channels + c];
+    }
+
+    int do_advance = 0;
+    while (read_i < total_px) {
+      switch (active_block) {
+      case BFG_BLOCK_FULL:
+        break;
+
+      case BFG_BLOCK_SHORT_RUN:
+        if (curr == prev[1]) {
+          block_len++;
+          if (block_len > max_short_run_len) {
+            active_block = BFG_BLOCK_LONG_RUN;
+          }
+          do_advance = 1;
+        } else {
+          WRITE_BITS(enc->image + block_header_index,
+                     (unsigned)BFG_BLOCK_SHORT_RUN, BFG_BLOCK_HEADER_TAG_BITS,
+                     BFG_BLOCK_HEADER_VALUE_BITS);
+          WRITE_BITS(enc->image + block_header_index, block_len,
+                     BFG_BLOCK_HEADER_VALUE_BITS, 0);
+          active_block = BFG_BLOCK_NONE;
+        }
+        break;
+
+      case BFG_BLOCK_LONG_RUN:
+        if (curr == prev[1]) {
+          block_len++;
+          if (block_len == max_long_run_len) {
+            enc->image[block_header_index++] = block_len;
+            active_block = BFG_BLOCK_NONE;
+          }
+        }
+        break;
+
+      case BFG_BLOCK_DELTA_PREV:
+        break;
+
+      case BFG_BLOCK_EOF:
+        break;
+
+      default:
+        break;
+      }
+
+      if (active_block == BFG_BLOCK_NONE) {
+      }
+
+      // advance to next pixel
+      if (do_advance) {
+        read_i++;
+        do_advance = 0;
+
+        if (read_i)
+
+          prev[0] = prev[1];
+        prev[1] = curr;
+        curr = next[0];
+        next[0] = next[1];
+        next[1] = raw->pixels[read_i < total_px - 2 ? read_i + 2 : read_i];
+      }
+    }
+  }
+
+  return 0;
+}
 
 bfg_raw_t bfg_read(char *fpath) { return 0; }
 
