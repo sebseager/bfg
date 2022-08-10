@@ -75,16 +75,22 @@ start a SHORT RUN and set its count to 1
 #ifndef BFG_MALLOC
 #define BFG_MALLOC(sz) malloc(sz)
 #endif
+#ifndef BFG_REALLOC
+#define BFG_REALLOC(ptr, sz) realloc(ptr, sz)
+#endif
 #ifndef BFG_FREE
 #define BFG_FREE(ptr) free(ptr)
 #endif
 
 #define BFG_MAGIC_TAG (0xBFBFBFBF)
 #define BFG_CHANNEL_DEPTH_BYTES (1)
-#define BFG_BLOCK_HEADER_TAG_BITS (3)
-#define BFG_BLOCK_HEADER_VALUE_BITS (5)
+#define BFG_SHORT_HEADER_BYTES (1)
+#define BFG_LONG_HEADER_BYTES (2)
+#define BFG_HEADER_TAG_BITS (3)
+// #define BFG_HEADER_VALUE_BITS (5)
+#define BFG_DIFF_BITS (4) // MUST BE DIVISIBLE BY 8
 
-/* Tags appearing in the first BFG_BLOCK_HEADER_TAG_BITS of each block header.
+/* Tags appearing in the first BFG_HEADER_TAG_BITS of each block header.
  * BFG_BLOCK_NONE should never appear in a valid BFG file and is included for
  * simplicity of implementation only. */
 typedef enum {
