@@ -286,6 +286,7 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
   enc->magic_tag = BFG_MAGIC_TAG;
   enc->width = raw->width;
   enc->height = raw->height;
+  enc->n_bytes = 0;
   enc->n_channels = raw->n_channels;
   enc->color_mode = 0; // this doesn't do anything at the moment
 
@@ -307,10 +308,11 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
   const int16_t min_diff = -max_diff;
 
   uint32_t block_header_index = 0;
-  int32_t block_len;
+  uint32_t block_len = 0;
 
   for (uint8_t c = 0; c < enc->n_channels; c++) {
     bfg_block_type_t active_block = BFG_BLOCK_FULL;
+    bfg_block_type_t next_block;
 
     uint32_t read_i = 0;
     uint8_t prev = 0;
@@ -322,7 +324,7 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
     int did_encode_px = 0;
     int do_change_block = 1;
 
-    while (read_i < n_px) {
+    while (read_i <= n_px) {
       const int8_t diff = curr - prev;
       const uint8_t next_diff = next[0] - curr;
       const int can_continue_run = diff == 0;
@@ -333,9 +335,8 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
 
       // for a new block, move block_header_index and write header
       if (do_change_block) {
-        int32_t block_bytes;
-
         // some blocks take up less than block_len bytes
+        int32_t block_bytes;
         switch (active_block) {
         case BFG_BLOCK_RUN:
           block_bytes = 0;
@@ -344,14 +345,18 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
           block_bytes = CEIL_DIV(block_len * BFG_DIFF_BITS, BFG_BIT_DEPTH);
           break;
         default:
-          // very first block starts at 0 = -1 + 1
-          block_bytes = block_header_index == 0 ? -1 : block_len;
+          block_bytes = block_len;
           break;
         }
 
-        block_header_index += block_bytes + 1;
+        // no need to increment for very first block
+        if (block_header_index > 0) {
+          enc->n_bytes += block_bytes;
+          block_header_index += block_bytes + 1;
+        }
+
+        // realloc image if necessary
         if (block_header_index >= image_bytes) {
-          // realloc image if necessary
           uint32_t new_image_bytes = image_bytes * 2;
           if (new_image_bytes > image_bytes) {
             image_bytes = new_image_bytes;
@@ -360,6 +365,8 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
             return 1;
           }
         }
+
+        // write next block header
         WRITE_BITS(&enc->image[block_header_index], active_block,
                    BFG_HEADER_TAG_BITS, BFG_BIT_DEPTH - BFG_HEADER_TAG_BITS);
         block_len = 0;
@@ -454,7 +461,10 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
         did_encode_px = 0;
 
         // don't go out of bounds if at end of image
-        if (read_i < n_px) {
+        if (read_i == n_px) {
+          do_change_block = 1;
+          active_block = BFG_BLOCK_NONE;
+        } else {
           prev = curr;
           curr = next[0];
           next[0] = next[1];
