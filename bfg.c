@@ -1,13 +1,11 @@
 #include "bfg.h"
+#include <assert.h>
 #include <limits.h>
 #include <png.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define HIGH_3_BIT_MASK (0xE0)
-#define LOW_5_BIT_MASK (0x1F)
 
 #define FLAT_INDEX(x, y, w) ((y) * (w) + (x))
 #define FCLOSE(fp) ((fp) ? fclose((fp)) : 0, (fp) = NULL)
@@ -22,6 +20,8 @@
 
 #define TWO_POWER(pow) (1 << (pow))
 #define PROD_FITS_TYPE(a, b, max_val) ((a) > (max_val) / (b) ? 0 : 1)
+#define IN_RANGE(val, min, max) ((val) >= (min) & (val) <= (max))
+#define CEIL_DIV(num, den) (((num)-1) / (den) + 1)
 
 typedef struct png_data {
   FILE *fp;
@@ -41,7 +41,7 @@ void libpng_free(png_data_t png) {
 
   if (png->row_ptrs) {
     png_uint_32 height = png_get_image_height(png->png_ptr, png->info_ptr);
-    for (int y = 0; y < height; y++) {
+    for (png_uint_32 y = 0; y < height; y++) {
       if (png->row_ptrs[y]) {
         BFG_FREE(png->row_ptrs[y]);
       }
@@ -187,7 +187,7 @@ bfg_raw_t libpng_decode(png_data_t png) {
   png_uint_32 row_bytes = png_get_rowbytes(png->png_ptr, png->info_ptr);
   for (png_uint_32 y = 0; y < bfg->height; y++) {
     for (png_uint_32 x = 0; x < row_bytes; x += bfg->n_channels) {
-      for (unsigned int c = 0; c < bfg->n_channels; c++) {
+      for (png_uint_32 c = 0; c < bfg->n_channels; c++) {
         bfg->pixels[FLAT_INDEX(x + c, y, row_bytes)] = png->row_ptrs[y][x + c];
       }
     }
@@ -268,16 +268,16 @@ int libpng_write(char *fpath, bfg_raw_t bfg) {
 
 // TODO: MAKE BFG FUNCS NEW FILE
 
-static void write_header_block(uint8_t *start_byte, bfg_block_type_t type,
-                               uint32_t value, unsigned int header_bytes) {
-  WRITE_BITS(start_byte, value, BFG_HEADER_TAG_BITS, 8 - BFG_HEADER_TAG_BITS);
-  unsigned int bytes_written = 0;
-  while (bytes_written < header_bytes) {
-    unsigned int width = bytes_written == 0 ? 8 - BFG_HEADER_TAG_BITS : 8;
-    unsigned int shift = 8 * (header_bytes - bytes_written - 1);
-    WRITE_BITS(start_byte + bytes_written, value >> shift, width, 0);
-  }
-}
+// static void write_header_block(uint8_t *start_byte, bfg_block_type_t type,
+//                                uint32_t value, unsigned int header_bytes) {
+//   WRITE_BITS(start_byte, value, BFG_HEADER_TAG_BITS, 8 -
+//   BFG_HEADER_TAG_BITS); unsigned int bytes_written = 0; while (bytes_written
+//   < header_bytes) {
+//     unsigned int width = bytes_written == 0 ? 8 - BFG_HEADER_TAG_BITS : 8;
+//     unsigned int shift = 8 * (header_bytes - bytes_written - 1);
+//     WRITE_BITS(start_byte + bytes_written, value >> shift, width, 0);
+//   }
+// }
 
 /* Frees everything allocated within the bfg data struct. */
 void bfg_free(bfg_raw_t bfg) {
@@ -290,11 +290,7 @@ void bfg_free(bfg_raw_t bfg) {
 }
 
 int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
-  if (!raw || !enc) {
-    return 1;
-  }
-
-  if (!raw->width || !raw->height || !raw->n_channels) {
+  if (!raw || !enc || !raw->width || !raw->height || !raw->n_channels) {
     return 1;
   }
 
@@ -302,8 +298,9 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
   enc->width = raw->width;
   enc->height = raw->height;
   enc->n_channels = raw->n_channels;
-  enc->byte_depth = BFG_CHANNEL_DEPTH_BYTES;
-  enc->color_mode = 0; // this doesn't do anything at the moment
+  enc->byte_depth =
+      BFG_CHANNEL_DEPTH_BYTES; // this doesn't do anything at the moment
+  enc->color_mode = 0;         // this doesn't do anything at the moment
 
   const uint32_t n_px = enc->width * enc->height;
   const uint32_t n_values = n_px * enc->n_channels;
@@ -319,117 +316,234 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
     return 1;
   }
 
-  const uint32_t max_short_run_len =
-      TWO_POWER(8 * BFG_SHORT_HEADER_BYTES - BFG_HEADER_TAG_BITS);
-  const uint32_t max_long_run_len =
-      TWO_POWER(8 * BFG_LONG_HEADER_BYTES - BFG_HEADER_TAG_BITS);
-  const uint32_t max_diff_len = max_short_run_len * BFG_DIFF_BITS / 8;
-  const int32_t max_diff = max_short_run_len >> 1;
-  const int32_t min_diff = -max_diff;
-  const uint8_t first_diff_bit_offset = 8 - BFG_DIFF_BITS;
-  const uint8_t diffs_per_byte = 8 / BFG_DIFF_BITS;
+  const uint16_t max_block_entries = TWO_POWER(8 - BFG_HEADER_TAG_BITS);
+  const int16_t max_diff = max_block_entries >> 1;
+  const int16_t min_diff = -max_diff;
 
-  for (unsigned int c = 0; c < enc->n_channels; c++) {
-    bfg_block_type_t active_block = BFG_BLOCK_NONE;
-    uint32_t block_header_index = 0;
-    uint32_t block_len = 0;
+  uint32_t block_header_index = 0;
+
+  for (uint8_t c = 0; c < enc->n_channels; c++) {
+    bfg_block_type_t active_block = BFG_BLOCK_FULL;
+    int32_t block_len;
+
     uint32_t read_i = 0;
-    uint8_t diff_bit_offset = first_diff_bit_offset;
-
     uint8_t prev = 0;
     uint8_t curr = raw->pixels[0 + c];
     uint8_t next[2];
     next[0] = raw->pixels[n_px > 1 ? 1 * enc->n_channels + c : 0 + c];
     next[1] = raw->pixels[n_px > 2 ? 2 * enc->n_channels + c : n_px - 1 + c];
 
-    int do_advance = 0;
+    int did_encode_px = 0;
+    int do_change_block = 1;
+
     while (read_i < n_px) {
+      const int8_t diff = curr - prev;
+      const uint8_t next_diff = next[0] - curr;
+      const int can_continue_run = diff == 0;
+      const int can_start_run = can_continue_run && next_diff == 0;
+      const int can_continue_diff = IN_RANGE(diff, min_diff, max_diff);
+      const int can_start_diff =
+          can_continue_diff && IN_RANGE(next_diff, min_diff, max_diff);
+
+      // if starting new block, write header
+      if (do_change_block) {
+        // very first block starts at 0 = -1 + 1
+        int32_t block_bytes = block_header_index == 0 ? -1 : block_len;
+
+        // some blocks take up less than block_len bytes
+        if (active_block == BFG_BLOCK_DIFF_PREV) {
+          block_bytes = CEIL_DIV(block_len * BFG_DIFF_BITS, 8);
+        }
+
+        block_header_index += block_bytes + 1;
+        WRITE_BITS(&enc->image[block_header_index], active_block,
+                   BFG_HEADER_TAG_BITS, 8 - BFG_HEADER_TAG_BITS);
+        block_len = 0;
+        do_change_block = 0;
+      }
+
+      // either extend current block or switch to new block
       switch (active_block) {
       case BFG_BLOCK_FULL: {
-        int do_end_block = 0;
-        if (curr == prev && curr == next[0]) {
-          do_end_block = 1;
-        } else if (<>) // TODO
-          break;
+        if (block_len > max_block_entries) {
+          do_change_block = 1;
+        }
+        if (can_start_run) {
+          do_change_block = 1;
+          active_block = BFG_BLOCK_RUN;
+        } else if (can_start_diff) {
+          do_change_block = 1;
+          active_block = BFG_BLOCK_DIFF_PREV;
+        }
+        if (!do_change_block) {
+          did_encode_px = 1;
+          block_len++;
+          WRITE_BITS(&enc->image[block_header_index + block_len], curr, 8, 0);
+        }
+        break;
       }
 
-      case BFG_BLOCK_SHORT_RUN: {
-        if (curr == prev) {
+      case BFG_BLOCK_RUN: {
+        if (block_len > max_block_entries) {
+          do_change_block = 1;
+          active_block = BFG_BLOCK_FULL;
+        }
+        if (!do_change_block && can_continue_run) {
+          did_encode_px = 1;
           block_len++;
-          do_advance++;
-          if (block_len > max_short_run_len) {
-            active_block = BFG_BLOCK_LONG_RUN;
+        } else if (can_start_diff) {
+          do_change_block = 1;
+          active_block = BFG_BLOCK_DIFF_PREV;
+        } else {
+          do_change_block = 1;
+          active_block = BFG_BLOCK_FULL;
+        }
+        break;
+      }
+
+      case BFG_BLOCK_DIFF_PREV: {
+        if (block_len > max_block_entries) {
+          do_change_block = 1;
+          active_block = BFG_BLOCK_FULL;
+        }
+        uint8_t diff_offset_bits = (8 - block_len * BFG_DIFF_BITS) % 8;
+        if (diff_offset_bits == 8 - BFG_DIFF_BITS) {
+          // we're at a byte boundary, so good place to switch
+          if (can_start_run) {
+            do_change_block = 1;
+            active_block = BFG_BLOCK_RUN;
           }
+        }
+        if (!do_change_block && can_continue_diff) {
+          did_encode_px = 1;
+          // block_len++;
+          // diff_offset_bits = (diff_offset_bits - BFG_DIFF_BITS) % 8;
+          // WRITE_BITS(&enc->image[block_header_index +
+          //                        CEIL_DIV(block_len * BFG_DIFF_BITS, 8)],
+          //            diff, BFG_DIFF_BITS, diff_offset_bits);
         } else {
-          write_header_block(enc->image + block_header_index,
-                             (unsigned)active_block, block_len,
-                             BFG_SHORT_HEADER_BYTES);
-          active_block = BFG_BLOCK_NONE;
+          do_change_block = 1;
+          active_block = BFG_BLOCK_FULL;
         }
         break;
       }
 
-      case BFG_BLOCK_LONG_RUN: {
-        if (curr != prev || block_len == max_long_run_len) {
-          write_header_block(enc->image + block_header_index,
-                             (unsigned)active_block, block_len,
-                             BFG_LONG_HEADER_BYTES);
-          active_block = BFG_BLOCK_NONE;
-        } else {
-          block_len++;
-          do_advance++;
-        }
+      case BFG_BLOCK_EOF: {
         break;
       }
-
-      case BFG_BLOCK_DELTA_PREV: {
-        int8_t diff = curr - prev;
-        int do_end_block = 0;
-        if (diff_bit_offset == first_diff_bit_offset) {
-          if (max_diff_len == block_len || (diff == 0 && curr == next[0])) {
-            do_end_block = 1; // block is full or we can switch to short run
-          }
-        }
-        if (diff < min_diff || diff > max_diff) {
-          do_end_block = 1; // no more diffs
-        }
-
-        if (do_end_block) {
-          write_header_block(enc->image + block_header_index,
-                             (unsigned)active_block, block_len,
-                             BFG_SHORT_HEADER_BYTES);
-          // if there's any remaining bits in the last byte, doesn't matter
-          active_block = BFG_BLOCK_NONE;
-        } else {
-          uint32_t write_i = block_header_index + block_len * BFG_DIFF_BITS / 8;
-          // write sign bit
-          WRITE_BITS(enc->image + write_i, diff < 0, 1,
-                     diff_bit_offset + BFG_DIFF_BITS - 1);
-          // write magnitude
-          WRITE_BITS(enc->image + write_i,
-                     diff & BIT_MASK(BFG_DIFF_BITS - 1, 0), BFG_DIFF_BITS,
-                     diff_bit_offset);
-          block_len++;
-          do_advance++;
-          diff_bit_offset = (diff_bit_offset - BFG_DIFF_BITS) % 8;
-        }
-        break;
       }
 
-      case BFG_BLOCK_EOF:
-        break;
-
-      default:
-        break;
+      // if switching blocks, record old block length
+      // new block's header will be set at beginning of next iteration
+      if (do_change_block) {
+        assert(block_len > 0); // otherwise something's not gone well
+        WRITE_BITS(&enc->image[block_header_index], block_len - 1,
+                   8 - BFG_HEADER_TAG_BITS, 0);
       }
 
-      if (active_block == BFG_BLOCK_NONE) {
-      }
+      // switch (active_block) {
+      // case BFG_BLOCK_FULL: {
+      //   if (curr == prev && curr == next[0]) {
+      //     do_end_block = 1;
+      //     active_block = BFG_BLOCK_SHORT_RUN;
+      //   } else if (IN_RANGE(diff, min_diff, max_diff) &&
+      //              IN_RANGE(next_diff, min_diff, max_diff)) {
+      //     do_end_block = 1;
+      //     active_block = BFG_BLOCK_DELTA_PREV;
+      //   } else if (block_len == max_short_block_entries) {
+      //     do_end_block = 1;
+      //   }
+      //   if (do_end_block) {
+      //     write_header_block(enc->image + block_header_index,
+      //                        (unsigned)active_block, block_len,
+      //                        BFG_SHORT_HEADER_BYTES);
+      //     block_len = 0;
+      //   } else {
+      //     WRITE_BITS(enc->image + block_header_index + block_len, curr, 8,
+      //     0); block_len++; do_advance++;
+      //   }
+      //   break;
+      // }
+
+      // case BFG_BLOCK_SHORT_RUN: {
+      //   if (curr != prev) {
+      //     do_end_block = 1;
+      //     active_block = BFG_BLOCK_FULL;
+      //   } else if (block_len == max_short_block_entries) {
+      //     do_end_block = 1;
+      //   }
+      //   if (curr == prev) {
+      //     if (block_len == max_short_block_entries) {
+      //       active_block = BFG_BLOCK_LONG_RUN;
+      //     }
+      //     block_len++;
+      //     do_advance++;
+      //   } else {
+      //     write_header_block(enc->image + block_header_index,
+      //                        (unsigned)active_block, block_len,
+      //                        BFG_SHORT_HEADER_BYTES);
+      //     block_len = 0;
+      //   }
+      //   break;
+      // }
+
+      // case BFG_BLOCK_LONG_RUN: {
+      //   if (curr != prev || block_len == max_long_block_entries) {
+      //     write_header_block(enc->image + block_header_index,
+      //                        (unsigned)active_block, block_len,
+      //                        BFG_LONG_HEADER_BYTES);
+      //     active_block = BFG_BLOCK_NONE;
+      //   } else {
+      //     block_len++;
+      //     do_advance++;
+      //   }
+      //   break;
+      // }
+
+      // case BFG_BLOCK_DELTA_PREV: {
+      //   if (diff_bit_offset == first_diff_bit_offset) {
+      //     if (block_len == max_diff_block_entries ||
+      //         (diff == 0 && curr == next[0])) {
+      //       do_end_block = 1; // block is full or we can switch to short run
+      //     }
+      //   }
+      //   if (!IN_RANGE(diff, min_diff, max_diff)) {
+      //     do_end_block = 1; // no more diffs
+      //   }
+      //   if (do_end_block) {
+      //     write_header_block(enc->image + block_header_index,
+      //                        (unsigned)active_block, block_len,
+      //                        BFG_SHORT_HEADER_BYTES);
+      //     // if there's any remaining bits in the last byte, doesn't matter
+      //     active_block = BFG_BLOCK_NONE;
+      //   } else {
+      //     uint32_t write_i = block_header_index + block_len * BFG_DIFF_BITS /
+      //     8;
+      //     // write sign bit
+      //     WRITE_BITS(enc->image + write_i, diff < 0, 1,
+      //                diff_bit_offset + BFG_DIFF_BITS - 1);
+      //     // write magnitude
+      //     WRITE_BITS(enc->image + write_i,
+      //                diff & BIT_MASK(BFG_DIFF_BITS - 1, 0), BFG_DIFF_BITS,
+      //                diff_bit_offset);
+      //     block_len++;
+      //     do_advance++;
+      //     diff_bit_offset = (diff_bit_offset - BFG_DIFF_BITS) % 8;
+      //   }
+      //   break;
+      // }
+
+      // case BFG_BLOCK_EOF:
+      //   break;
+
+      // default:
+      //   break;
+      // }
 
       // advance to next pixel
-      while (do_advance > 0) {
+      if (did_encode_px) {
         read_i++;
-        do_advance--;
+        did_encode_px = 0;
 
         // check if at end of image
         if (read_i == n_px) {

@@ -84,21 +84,16 @@ start a SHORT RUN and set its count to 1
 
 #define BFG_MAGIC_TAG (0xBFBFBFBF)
 #define BFG_CHANNEL_DEPTH_BYTES (1)
-#define BFG_SHORT_HEADER_BYTES (1)
-#define BFG_LONG_HEADER_BYTES (2)
 #define BFG_HEADER_TAG_BITS (3)
-// #define BFG_HEADER_VALUE_BITS (5)
 #define BFG_DIFF_BITS (4) // MUST BE DIVISIBLE BY 8
 
 /* Tags appearing in the first BFG_HEADER_TAG_BITS of each block header.
  * BFG_BLOCK_NONE should never appear in a valid BFG file and is included for
  * simplicity of implementation only. */
 typedef enum {
-  BFG_BLOCK_NONE = -1,
   BFG_BLOCK_FULL = 0,
-  BFG_BLOCK_SHORT_RUN = 1,
-  BFG_BLOCK_LONG_RUN = 2,
-  BFG_BLOCK_DELTA_PREV = 3,
+  BFG_BLOCK_RUN = 1,
+  BFG_BLOCK_DIFF_PREV = 2,
   BFG_BLOCK_EOF = 7,
 } bfg_block_type_t;
 
