@@ -20,6 +20,13 @@ Copyright (c) 2022, Seb Seager.
 ## Format
 
 <>
+REMEMBER: block length is one more than the int recorded (so 0 = len 1)
+
+TODO
+- clear out unnecessary asserts after testing
+
+ASSUMPTIONS
+- lookback before beginning of the file all bytes are zeros
 
 ##
 
@@ -42,7 +49,7 @@ Copyright (c) 2022, Seb Seager.
 #define BFG_VERSION (1)
 #define BFG_BIT_DEPTH (8)
 #define BFG_TAG_BITS (3)
-#define BFG_DIFF_BITS (4) // must be divisible by BFG_BIT_DEPTH
+#define BFG_DIFF_BITS (4) /* must divide BFG_BIT_DEPTH */
 
 /* Tags appearing in the first BFG_TAG_BITS of each block header. No tag
  * with a value < 0 should ever appear in a valid BFG file. These are provided
