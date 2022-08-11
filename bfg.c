@@ -251,7 +251,7 @@ int libpng_write(char *fpath, bfg_raw_t bfg) {
   }
 
   png_set_IHDR(png->png_ptr, png->info_ptr, bfg->width, bfg->height,
-               BFG_CHANNEL_DEPTH_BYTES * 8, color_type, PNG_INTERLACE_NONE,
+               BFG_BIT_DEPTH, color_type, PNG_INTERLACE_NONE,
                PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
   png_write_info(png->png_ptr, png->info_ptr);
 
@@ -287,16 +287,12 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
   enc->width = raw->width;
   enc->height = raw->height;
   enc->n_channels = raw->n_channels;
-  enc->byte_depth =
-      BFG_CHANNEL_DEPTH_BYTES; // this doesn't do anything at the moment
-  enc->color_mode = 0;         // this doesn't do anything at the moment
+  enc->color_mode = 0; // this doesn't do anything at the moment
 
   const uint32_t n_px = enc->width * enc->height;
-  const uint32_t n_values = n_px * enc->n_channels;
-  uint32_t image_bytes = n_values * enc->byte_depth;
+  uint32_t image_bytes = n_px * enc->n_channels;
   if (!PROD_FITS_TYPE(enc->width, enc->height, UINT32_MAX) ||
-      !PROD_FITS_TYPE(n_px, enc->n_channels, UINT32_MAX) ||
-      !PROD_FITS_TYPE(n_values, enc->byte_depth, UINT32_MAX)) {
+      !PROD_FITS_TYPE(n_px, enc->n_channels, UINT32_MAX)) {
     return 1;
   }
 
@@ -305,7 +301,8 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
     return 1;
   }
 
-  const uint16_t max_block_entries = TWO_POWER(8 - BFG_HEADER_TAG_BITS);
+  const uint16_t max_block_entries =
+      TWO_POWER(BFG_BIT_DEPTH - BFG_HEADER_TAG_BITS);
   const int16_t max_diff = max_block_entries >> 1;
   const int16_t min_diff = -max_diff;
 
@@ -344,7 +341,7 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
           block_bytes = 0;
           break;
         case BFG_BLOCK_DIFF_PREV:
-          block_bytes = CEIL_DIV(block_len * BFG_DIFF_BITS, 8);
+          block_bytes = CEIL_DIV(block_len * BFG_DIFF_BITS, BFG_BIT_DEPTH);
           break;
         default:
           // very first block starts at 0 = -1 + 1
@@ -364,7 +361,7 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
           }
         }
         WRITE_BITS(&enc->image[block_header_index], active_block,
-                   BFG_HEADER_TAG_BITS, 8 - BFG_HEADER_TAG_BITS);
+                   BFG_HEADER_TAG_BITS, BFG_BIT_DEPTH - BFG_HEADER_TAG_BITS);
         block_len = 0;
         do_change_block = 0;
       }
@@ -385,7 +382,8 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
         if (!do_change_block) {
           did_encode_px = 1;
           block_len++;
-          WRITE_BITS(&enc->image[block_header_index + block_len], curr, 8, 0);
+          WRITE_BITS(&enc->image[block_header_index + block_len], curr,
+                     BFG_BIT_DEPTH, 0);
         }
         break;
       }
@@ -413,8 +411,9 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
           do_change_block = 1;
           active_block = BFG_BLOCK_FULL;
         }
-        uint8_t diff_offset_bits = (8 - block_len * BFG_DIFF_BITS) % 8;
-        if (diff_offset_bits == 8 - BFG_DIFF_BITS) {
+        uint8_t diff_offset_bits =
+            (BFG_BIT_DEPTH - block_len * BFG_DIFF_BITS) % BFG_BIT_DEPTH;
+        if (diff_offset_bits == BFG_BIT_DEPTH - BFG_DIFF_BITS) {
           // we're at a byte boundary, so good place to switch
           if (can_start_run) {
             do_change_block = 1;
@@ -424,8 +423,9 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
         if (!do_change_block && can_continue_diff) {
           did_encode_px = 1;
           block_len++;
-          diff_offset_bits = (diff_offset_bits - BFG_DIFF_BITS) % 8;
-          uint32_t bytes_ahead = CEIL_DIV(block_len * BFG_DIFF_BITS, 8);
+          diff_offset_bits = (diff_offset_bits - BFG_DIFF_BITS) % BFG_BIT_DEPTH;
+          uint32_t bytes_ahead =
+              CEIL_DIV(block_len * BFG_DIFF_BITS, BFG_BIT_DEPTH);
           uint8_t *dest = &enc->image[block_header_index + bytes_ahead];
           WRITE_BITS(dest, diff < 0, 1, diff_offset_bits + BFG_DIFF_BITS - 1);
           WRITE_BITS(dest, diff, BFG_DIFF_BITS - 1, diff_offset_bits);
@@ -445,7 +445,7 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
       if (do_change_block) {
         assert(block_len > 0); // otherwise something's not gone well
         WRITE_BITS(&enc->image[block_header_index], block_len - 1,
-                   8 - BFG_HEADER_TAG_BITS, 0);
+                   BFG_BIT_DEPTH - BFG_HEADER_TAG_BITS, 0);
       }
 
       // advance to next pixel

@@ -83,9 +83,9 @@ start a SHORT RUN and set its count to 1
 #endif
 
 #define BFG_MAGIC_TAG (0xBFBFBFBF)
-#define BFG_CHANNEL_DEPTH_BYTES (1)
+#define BFG_BIT_DEPTH (8)
 #define BFG_HEADER_TAG_BITS (3)
-#define BFG_DIFF_BITS (4) // MUST BE DIVISIBLE BY 8
+#define BFG_DIFF_BITS (4) // must be divisible by BFG_BIT_DEPTH
 
 /* Tags appearing in the first BFG_HEADER_TAG_BITS of each block header. */
 typedef enum {
@@ -106,7 +106,6 @@ typedef struct bfg_encoded {
   uint32_t width;
   uint32_t height;
   uint8_t n_channels;
-  uint8_t byte_depth;
   uint8_t color_mode;
   uint8_t *image;
 } * bfg_encoded_t;
