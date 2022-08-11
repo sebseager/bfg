@@ -307,7 +307,7 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
   const int16_t max_diff = max_block_entries >> 1;
   const int16_t min_diff = -max_diff;
 
-  uint32_t block_header_index = 0;
+  uint32_t block_header_idx = 0;
   uint32_t block_len = 0;
 
   for (uint8_t c = 0; c < enc->n_channels; c++) {
@@ -349,7 +349,7 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
         if (!do_change_block) {
           did_encode_px = 1;
           block_len++;
-          WRITE_BITS(&enc->image[block_header_index + block_len], curr,
+          WRITE_BITS(&enc->image[block_header_idx + block_len], curr,
                      BFG_BIT_DEPTH, 0);
         }
         break;
@@ -393,7 +393,7 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
           diff_offset_bits = (diff_offset_bits - BFG_DIFF_BITS) % BFG_BIT_DEPTH;
           uint32_t bytes_ahead =
               CEIL_DIV(block_len * BFG_DIFF_BITS, BFG_BIT_DEPTH);
-          uint8_t *dest = &enc->image[block_header_index + bytes_ahead];
+          uint8_t *dest = &enc->image[block_header_idx + bytes_ahead];
           WRITE_BITS(dest, diff < 0, 1, diff_offset_bits + BFG_DIFF_BITS - 1);
           WRITE_BITS(dest, diff, BFG_DIFF_BITS - 1, diff_offset_bits);
         } else {
@@ -407,46 +407,48 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
         break;
       }
 
-      // switch blocks if needed
+      // switch blocks
       if (do_change_block) {
-        assert(block_len > 0); // otherwise something's not gone well
+        // if block was empty we don't need to write anything
+        if (block_len > 0) {
+          // write old block's header
+          WRITE_BITS(&enc->image[block_header_idx], active_block,
+                     BFG_HEADER_TAG_BITS, BFG_BIT_DEPTH - BFG_HEADER_TAG_BITS);
+          WRITE_BITS(&enc->image[block_header_idx], block_len - 1,
+                     BFG_BIT_DEPTH - BFG_HEADER_TAG_BITS, 0);
 
-        // write old block's header
-        WRITE_BITS(&enc->image[block_header_index], active_block,
-                   BFG_HEADER_TAG_BITS, BFG_BIT_DEPTH - BFG_HEADER_TAG_BITS);
-        WRITE_BITS(&enc->image[block_header_index], block_len - 1,
-                   BFG_BIT_DEPTH - BFG_HEADER_TAG_BITS, 0);
+          // some blocks take up less than block_len bytes
+          int32_t block_bytes;
+          switch (active_block) {
+          case BFG_BLOCK_RUN:
+            block_bytes = 0;
+            break;
+          case BFG_BLOCK_DIFF_PREV:
+            block_bytes = CEIL_DIV(block_len * BFG_DIFF_BITS, BFG_BIT_DEPTH);
+            break;
+          default:
+            block_bytes = block_len;
+            break;
+          }
 
-        // some blocks take up less than block_len bytes
-        int32_t block_bytes;
-        switch (active_block) {
-        case BFG_BLOCK_RUN:
-          block_bytes = 0;
-          break;
-        case BFG_BLOCK_DIFF_PREV:
-          block_bytes = CEIL_DIV(block_len * BFG_DIFF_BITS, BFG_BIT_DEPTH);
-          break;
-        default:
-          block_bytes = block_len;
-          break;
-        }
+          enc->n_bytes += block_bytes;
+          block_header_idx += block_bytes + 1;
+          block_len = 0;
 
-        enc->n_bytes += block_bytes;
-        block_header_index += block_bytes + 1;
-        block_len = 0;
-        do_change_block = 0;
-        active_block = next_block;
-
-        // realloc image if necessary
-        if (block_header_index >= image_bytes) {
-          uint32_t new_image_bytes = image_bytes * 2;
-          if (new_image_bytes > image_bytes) {
-            image_bytes = new_image_bytes;
-            enc->image = BFG_REALLOC(enc->image, image_bytes);
-          } else {
-            return 1;
+          // realloc image if necessary
+          if (block_header_idx >= image_bytes) {
+            uint32_t new_image_bytes = image_bytes * 2;
+            if (new_image_bytes > image_bytes) {
+              image_bytes = new_image_bytes;
+              enc->image = BFG_REALLOC(enc->image, image_bytes);
+            } else {
+              return 1;
+            }
           }
         }
+
+        active_block = next_block;
+        do_change_block = 0;
       }
 
       // advance to next pixel
@@ -454,15 +456,15 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
         read_i++;
         did_encode_px = 0;
 
-        // don't go out of bounds if at end of image
-        if (read_i == n_px) {
+        prev = curr;
+        curr = next[0];
+        next[0] = next[1];
+        next[1] = raw->pixels[read_i < n_px - 2 ? read_i + 2 : read_i];
+
+        // about to look at final pixel so write block after next iteration
+        if (read_i == n_px - 1) {
           do_change_block = 1;
           next_block = BFG_BLOCK_NONE;
-        } else {
-          prev = curr;
-          curr = next[0];
-          next[0] = next[1];
-          next[1] = raw->pixels[read_i < n_px - 2 ? read_i + 2 : read_i];
         }
       }
     }
