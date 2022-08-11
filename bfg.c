@@ -64,24 +64,21 @@ void libpng_free(png_data_t png) {
       png_destroy_read_struct(&png->png_ptr, &png->info_ptr, NULL);
     }
   }
-
-  BFG_FREE(png);
 }
 
-/* Allocates png data struct and reads png file at fpath into it using the
- * libpng API. Caller is responsible for freeing the struct with libpng_free.
- * Returns NULL on failure. */
-png_data_t libpng_read(char *fpath) {
-  png_data_t png = BFG_MALLOC(sizeof(struct png_data));
+/* Reads png file at fpath into png data struct using the libpng API. Caller is
+ * responsible for freeing the internals of the png struct with libpng_free.
+ * Returns 0 on success, nonzero on failure. */
+int libpng_read(char *fpath, png_data_t png) {
   if (!fpath || !png) {
-    return NULL;
+    return 1;
   }
 
   png->file_mode = 'r';
   png->fp = fopen(fpath, "rb");
   if (!png->fp) {
     fprintf(stderr, "Could not open file %s\n", fpath);
-    return NULL;
+    return 1;
   }
 
   // verify png signature in first 8 bytes
@@ -90,20 +87,20 @@ png_data_t libpng_read(char *fpath) {
   if (png_sig_cmp(sig, 0, 8)) {
     fprintf(stderr, "Not a valid png file\n");
     libpng_free(png);
-    return NULL;
+    return 1;
   }
 
   png->png_ptr =
       png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
   if (!png->png_ptr) {
     libpng_free(png);
-    return NULL;
+    return 1;
   }
 
   png->info_ptr = png_create_info_struct(png->png_ptr);
   if (!png->info_ptr) {
     libpng_free(png);
-    return NULL;
+    return 1;
   }
 
   png_init_io(png->png_ptr, png->fp);
@@ -157,47 +154,46 @@ png_data_t libpng_read(char *fpath) {
   png_read_end(png->png_ptr, png->info_ptr);
   FCLOSE(png->fp);
 
-  return png;
+  return 0;
 }
 
-/* Allocates and populates bfg data struct with data from libpng data struct.
- * Returns struct on success, NULL on failure. */
-bfg_raw_t libpng_decode(png_data_t png) {
-  bfg_raw_t bfg = BFG_MALLOC(sizeof(struct bfg_raw));
-  if (!png || !bfg) {
-    return NULL;
+/* Populates raw image data struct with data from libpng data struct.
+ * Returns 0 on success, nonzero on failure. */
+int libpng_decode(png_data_t png, bfg_raw_t raw) {
+  if (!png || !raw) {
+    return 1;
   }
 
-  bfg->width = png_get_image_width(png->png_ptr, png->info_ptr);
-  bfg->height = png_get_image_height(png->png_ptr, png->info_ptr);
-  bfg->n_channels = png_get_channels(png->png_ptr, png->info_ptr);
+  raw->width = png_get_image_width(png->png_ptr, png->info_ptr);
+  raw->height = png_get_image_height(png->png_ptr, png->info_ptr);
+  raw->n_channels = png_get_channels(png->png_ptr, png->info_ptr);
 
-  const uint32_t total_px = bfg->width * bfg->height;
-  const uint32_t total_bytes = total_px * bfg->n_channels;
-  if (!PROD_FITS_TYPE(bfg->width, bfg->height, UINT32_MAX) ||
-      !PROD_FITS_TYPE(total_px, bfg->n_channels, UINT32_MAX)) {
-    return NULL;
+  const uint32_t total_px = raw->width * raw->height;
+  const uint32_t total_bytes = total_px * raw->n_channels;
+  if (!PROD_FITS_TYPE(raw->width, raw->height, UINT32_MAX) ||
+      !PROD_FITS_TYPE(total_px, raw->n_channels, UINT32_MAX)) {
+    return 1;
   }
 
-  bfg->pixels = BFG_MALLOC(total_bytes);
-  if (!bfg->pixels) {
-    return NULL;
+  raw->pixels = BFG_MALLOC(total_bytes);
+  if (!raw->pixels) {
+    return 1;
   }
 
   png_uint_32 row_bytes = png_get_rowbytes(png->png_ptr, png->info_ptr);
-  for (png_uint_32 y = 0; y < bfg->height; y++) {
-    for (png_uint_32 x = 0; x < row_bytes; x += bfg->n_channels) {
-      for (png_uint_32 c = 0; c < bfg->n_channels; c++) {
-        bfg->pixels[FLAT_INDEX(x + c, y, row_bytes)] = png->row_ptrs[y][x + c];
+  for (png_uint_32 y = 0; y < raw->height; y++) {
+    for (png_uint_32 x = 0; x < row_bytes; x += raw->n_channels) {
+      for (png_uint_32 c = 0; c < raw->n_channels; c++) {
+        raw->pixels[FLAT_INDEX(x + c, y, row_bytes)] = png->row_ptrs[y][x + c];
       }
     }
   }
 
-  return bfg;
+  return 0;
 }
 
-/* Allocates and populates libpng data struct with data from bfg data
- * struct and writes it to the file specified by fpath.
+/* Allocates and populates libpng data struct with data from bfg data struct and
+ * writes it to the file specified by fpath.
  * Returns 0 on success, nonzero on failure. */
 int libpng_write(char *fpath, bfg_raw_t raw) {
   png_data_t png = BFG_MALLOC(sizeof(struct png_data));
@@ -264,13 +260,19 @@ int libpng_write(char *fpath, bfg_raw_t raw) {
 
 // TODO: MAKE BFG FUNCS NEW FILE
 
-/* Frees everything allocated within the bfg data struct. */
-void bfg_free(/* TODO */) { /* TODO */
+void bfg_free(bfg_raw_t raw, bfg_img_t img) {
+  if (raw) {
+    BFG_FREE(raw->pixels);
+  }
+  if (img) {
+    BFG_FREE(img);
+  }
 }
 
-bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
-  if (!raw || !info || !raw->width || !raw->height || !raw->n_channels) {
-    return NULL;
+int bfg_encode(bfg_raw_t raw, bfg_info_t info, bfg_img_t img) {
+  if (!raw || !info || !img || !raw->width || !raw->height ||
+      !raw->n_channels) {
+    return 1;
   }
 
   info->magic_tag = BFG_MAGIC_TAG;
@@ -285,12 +287,7 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
   uint32_t image_bytes = n_px * info->n_channels;
   if (!PROD_FITS_TYPE(info->width, info->height, UINT32_MAX) ||
       !PROD_FITS_TYPE(n_px, info->n_channels, UINT32_MAX)) {
-    return NULL;
-  }
-
-  bfg_img_t img = BFG_MALLOC(image_bytes);
-  if (!img) {
-    return NULL;
+    return 1;
   }
 
   const uint16_t max_block_entries = TWO_POWER(BFG_BIT_DEPTH - BFG_TAG_BITS);
@@ -432,7 +429,7 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
               image_bytes = new_image_bytes;
               img = BFG_REALLOC(img, image_bytes);
             } else {
-              return NULL;
+              return 1;
             }
           }
         }
@@ -460,13 +457,12 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
     }
   }
 
-  return img;
+  return 0;
 }
 
-bfg_raw_t bfg_decode(bfg_info_t info, bfg_img_t img) {
-  bfg_raw_t raw = BFG_MALLOC(sizeof(struct bfg_raw));
+int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
   if (!info || !img || !raw) {
-    return NULL;
+    return 1;
   }
 
   raw->width = info->width;
@@ -477,12 +473,12 @@ bfg_raw_t bfg_decode(bfg_info_t info, bfg_img_t img) {
   const uint32_t total_bytes = total_px * raw->n_channels;
   if (!PROD_FITS_TYPE(raw->width, raw->height, UINT32_MAX) ||
       !PROD_FITS_TYPE(total_px, raw->n_channels, UINT32_MAX)) {
-    return NULL;
+    return 1;
   }
 
   raw->pixels = BFG_MALLOC(total_bytes);
   if (!raw->pixels) {
-    return NULL;
+    return 1;
   }
 
   bfg_block_type_t block_type;
@@ -541,7 +537,7 @@ bfg_raw_t bfg_decode(bfg_info_t info, bfg_img_t img) {
       }
 
       default:
-        return NULL;
+        return 1;
       }
 
       if (px_i == total_px) {
@@ -552,7 +548,7 @@ bfg_raw_t bfg_decode(bfg_info_t info, bfg_img_t img) {
     }
   }
 
-  return raw;
+  return 0;
 }
 
 int bfg_write(char *fpath, bfg_info_t info, bfg_img_t img) {
@@ -567,30 +563,26 @@ int bfg_write(char *fpath, bfg_info_t info, bfg_img_t img) {
   return 0;
 }
 
-bfg_img_t bfg_read(char *fpath, bfg_info_t info) {
+int bfg_read(char *fpath, bfg_info_t info, bfg_img_t img) {
   FILE *fp = fopen(fpath, "rb");
-  if (!fpath || !info || !fp) {
-    return NULL;
+  if (!fpath || !info || !fp || !img) {
+    return 1;
   }
 
   fread(info, sizeof(struct bfg_info), 1, fp);
+
   if (info->magic_tag != BFG_MAGIC_TAG) {
     printf("Not a valid bfg file\n");
-    return NULL;
+    return 1;
   }
   if (info->version != BFG_VERSION) {
     printf("Unsupported bfg version\n");
-    return NULL;
-  }
-
-  bfg_img_t img = BFG_MALLOC(info->n_bytes);
-  if (!img) {
-    return NULL;
+    return 1;
   }
 
   fread(img, info->n_bytes, 1, fp);
-
-  return img;
+  FCLOSE(fp);
+  return 0;
 }
 
 int main(int argc, char **argv) {
@@ -599,12 +591,15 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  png_data_t png = libpng_read(argv[1]);
-  bfg_raw_t bfg = libpng_decode(png);
-  libpng_free(png);
+  struct png_data png;
+  libpng_read(argv[1], &png);
 
-  libpng_write("bfg_out.png", bfg);
-  bfg_free(bfg);
+  struct bfg_raw raw;
+  libpng_decode(&png, &raw);
+  libpng_free(&png);
+
+  libpng_write("bfg_out.png", &raw);
+  bfg_free(&raw, NULL);
 
   return 0;
 }
