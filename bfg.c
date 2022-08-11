@@ -268,17 +268,6 @@ int libpng_write(char *fpath, bfg_raw_t bfg) {
 
 // TODO: MAKE BFG FUNCS NEW FILE
 
-// static void write_header_block(uint8_t *start_byte, bfg_block_type_t type,
-//                                uint32_t value, unsigned int header_bytes) {
-//   WRITE_BITS(start_byte, value, BFG_HEADER_TAG_BITS, 8 -
-//   BFG_HEADER_TAG_BITS); unsigned int bytes_written = 0; while (bytes_written
-//   < header_bytes) {
-//     unsigned int width = bytes_written == 0 ? 8 - BFG_HEADER_TAG_BITS : 8;
-//     unsigned int shift = 8 * (header_bytes - bytes_written - 1);
-//     WRITE_BITS(start_byte + bytes_written, value >> shift, width, 0);
-//   }
-// }
-
 /* Frees everything allocated within the bfg data struct. */
 void bfg_free(bfg_raw_t bfg) {
   if (!bfg) {
