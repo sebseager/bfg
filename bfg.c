@@ -310,10 +310,10 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
   const int16_t min_diff = -max_diff;
 
   uint32_t block_header_index = 0;
+  int32_t block_len;
 
   for (uint8_t c = 0; c < enc->n_channels; c++) {
     bfg_block_type_t active_block = BFG_BLOCK_FULL;
-    int32_t block_len;
 
     uint32_t read_i = 0;
     uint8_t prev = 0;
@@ -463,8 +463,6 @@ int bfg_encode(bfg_raw_t raw, bfg_encoded_t enc) {
       }
     }
   }
-
-  // TODO: WRITE EOF BLOCK
 
   return 0;
 }
