@@ -12,7 +12,7 @@
 #define BIT_MASK(width, offset) ((~(~0ULL << (width)) << (offset)))
 #define TWO_POWER(pow) (1 << (pow))
 #define PROD_FITS_TYPE(a, b, max_val) ((a) > (max_val) / (b) ? 0 : 1)
-#define IN_RANGE(val, min, max) ((val) >= (min) & (val) <= (max))
+#define IN_RANGE(val, min, max) (((val) >= (min)) & ((val) <= (max)))
 #define CEIL_DIV(num, den) (((num)-1) / (den) + 1)
 
 // write width bits of value to byte_ptr, shifted offset bits to the left
@@ -305,8 +305,11 @@ int bfg_encode(bfg_raw_t raw, bfg_info_t info, bfg_img_t img) {
     uint8_t prev = 0;
     uint8_t curr = raw->pixels[0 + c];
     uint8_t next[2];
+
+    // account for images with fewer than 3 pixels
     next[0] = raw->pixels[n_px > 1 ? 1 * info->n_channels + c : 0 + c];
-    next[1] = raw->pixels[n_px > 2 ? 2 * info->n_channels + c : n_px - 1 + c];
+    next[1] = raw->pixels[n_px > 2 ? (unsigned)(2 * info->n_channels + c)
+                                   : (unsigned)(n_px - 1 + c)];
 
     int did_encode_px = 0;
     int do_change_block = 1;
