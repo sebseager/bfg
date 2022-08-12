@@ -517,6 +517,8 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
     const uint32_t write_i = px_i * raw->n_channels + channel;
     const uint8_t prev = px_i > 0 ? raw->pixels[write_i - raw->n_channels] : 0;
 
+    printf("TEST %d %d %d %d %d\n", block_type, read_i, px_i, channel, write_i);
+
     if (block_len == 0) {
       // read block header
       block_type = (bfg_block_type_t)READ_BITS(&img[read_i], BFG_TAG_BITS,
@@ -587,26 +589,27 @@ int bfg_write(char *fpath, bfg_info_t info, bfg_img_t img) {
   return 0;
 }
 
-int bfg_read(char *fpath, bfg_info_t info, bfg_img_t img) {
+bfg_img_t bfg_read(char *fpath, bfg_info_t info) {
   FILE *fp = fopen(fpath, "rb");
-  if (!fpath || !info || !fp || !img) {
-    return 1;
+  if (!fpath || !info || !fp) {
+    return NULL;
   }
 
   fread(info, sizeof(struct bfg_info), 1, fp);
 
   if (info->magic_tag != BFG_MAGIC_TAG) {
     printf("Not a valid bfg file\n");
-    return 1;
+    return NULL;
   }
   if (info->version != BFG_VERSION) {
     printf("Unsupported bfg version\n");
-    return 1;
+    return NULL;
   }
 
+  bfg_img_t img = BFG_MALLOC(info->n_bytes);
   fread(img, info->n_bytes, 1, fp);
   FCLOSE(fp);
-  return 0;
+  return img;
 }
 
 int main(int argc, char **argv) {
@@ -620,13 +623,56 @@ int main(int argc, char **argv) {
 
   struct bfg_raw raw;
   libpng_decode(&png, &raw);
-  // libpng_write("bfg_out.png", &raw);
 
   struct bfg_info info;
   bfg_img_t img = bfg_encode(&raw, &info);
 
+  bfg_write("bfg_out.bfg", &info, img);
+
+  struct bfg_info info_in;
+  bfg_img_t img_in = bfg_read("bfg_out.bfg", &info_in);
+
+  // print pixels
+  printf("\n");
+  for (uint32_t i = 0; i < 10; i++) {
+    for (uint32_t j = 0; j < info_in.n_channels; j++) {
+      printf("%d ", img_in[i * info_in.n_channels + j]);
+    }
+    printf("\n");
+  }
+  printf("\n");
+
+  // print everything out of info
+  printf("width: %d\n", info_in.width);
+  printf("height: %d\n", info_in.height);
+  printf("n_channels: %d\n", info_in.n_channels);
+  printf("n_bytes: %d\n", info_in.n_bytes);
+  printf("magic_tag: %u\n", info_in.magic_tag);
+  printf("version: %d\n", info_in.version);
+  printf("\n");
+
+  struct bfg_raw raw_in;
+  bfg_decode(&info_in, img_in, &raw_in);
+
+  // print everything in raw_in
+  printf("width: %d\n", raw_in.width);
+  printf("height: %d\n", raw_in.height);
+  printf("n_channels: %d\n", raw_in.n_channels);
+  printf("\n");
+
+  // print first 5 pixels
+  for (uint32_t i = 0; i < 10; i++) {
+    for (uint32_t j = 0; j < raw_in.n_channels; j++) {
+      printf("%d ", raw_in.pixels[i * raw_in.n_channels + j]);
+    }
+    printf("\n");
+  }
+
+  libpng_write("bfg_out.png", &raw_in);
+
   libpng_free(&png);
   bfg_free(&raw, img);
+  bfg_free(&raw_in, img_in);
 
   return 0;
 }
