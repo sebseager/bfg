@@ -299,7 +299,7 @@ int bfg_encode(bfg_raw_t raw, bfg_info_t info, bfg_img_t img) {
 
   for (uint8_t c = 0; c < info->n_channels; c++) {
     bfg_block_type_t active_block = BFG_BLOCK_FULL;
-    bfg_block_type_t next_block;
+    bfg_block_type_t next_block = BFG_BLOCK_NONE;
 
     uint32_t read_i = 0;
     uint8_t prev = 0;
