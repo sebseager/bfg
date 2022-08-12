@@ -269,10 +269,10 @@ void bfg_free(bfg_raw_t raw, bfg_img_t img) {
   }
 }
 
-int bfg_encode(bfg_raw_t raw, bfg_info_t info, bfg_img_t img) {
-  if (!raw || !info || !img || !raw->width || !raw->height ||
-      !raw->n_channels) {
-    return 1;
+/* Caller must free. */
+bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
+  if (!raw || !info || !raw->width || !raw->height || !raw->n_channels) {
+    return NULL;
   }
 
   info->magic_tag = BFG_MAGIC_TAG;
@@ -287,7 +287,12 @@ int bfg_encode(bfg_raw_t raw, bfg_info_t info, bfg_img_t img) {
   uint32_t image_bytes = n_px * info->n_channels;
   if (!PROD_FITS_TYPE(info->width, info->height, UINT32_MAX) ||
       !PROD_FITS_TYPE(n_px, info->n_channels, UINT32_MAX)) {
-    return 1;
+    return NULL;
+  }
+
+  bfg_img_t img = BFG_MALLOC(image_bytes);
+  if (!img) {
+    return NULL;
   }
 
   const uint16_t max_block_entries = TWO_POWER(BFG_BIT_DEPTH - BFG_TAG_BITS);
@@ -303,16 +308,20 @@ int bfg_encode(bfg_raw_t raw, bfg_info_t info, bfg_img_t img) {
 
     uint32_t read_i = 0;
     uint8_t prev = 0;
-    uint8_t curr = raw->pixels[0 + c];
+    uint8_t curr = raw->pixels[c];
     uint8_t next[2];
 
     // account for images with fewer than 3 pixels
-    next[0] = raw->pixels[n_px > 1 ? 1 * info->n_channels + c : 0 + c];
+    next[0] = raw->pixels[n_px > 1 ? 1 * info->n_channels + c : c];
     next[1] = raw->pixels[n_px > 2 ? (unsigned)(2 * info->n_channels + c)
                                    : (unsigned)(n_px - 1 + c)];
 
     int did_encode_px = 0;
-    int do_change_block = 1;
+    int do_change_block = 0;
+
+    // DEBUG ONLY
+    unsigned int n_encoded = 0;
+    unsigned int n_full = 0;
 
     while (read_i < n_px) {
       const int8_t diff = curr - prev;
@@ -432,9 +441,15 @@ int bfg_encode(bfg_raw_t raw, bfg_info_t info, bfg_img_t img) {
               image_bytes = new_image_bytes;
               img = BFG_REALLOC(img, image_bytes);
             } else {
-              return 1;
+              return NULL;
             }
           }
+        }
+
+        if (active_block == BFG_BLOCK_FULL) {
+          n_full++;
+        } else {
+          n_encoded++;
         }
 
         active_block = next_block;
@@ -449,18 +464,24 @@ int bfg_encode(bfg_raw_t raw, bfg_info_t info, bfg_img_t img) {
         prev = curr;
         curr = next[0];
         next[0] = next[1];
-        next[1] = raw->pixels[read_i < n_px - 2 ? read_i + 2 : read_i];
+        if (read_i < n_px - 2) {
+          next[1] = raw->pixels[read_i * info->n_channels + c];
+        }
 
         // about to look at final pixel so write block after next iteration
         if (read_i == n_px - 1) {
           do_change_block = 1;
           next_block = BFG_BLOCK_NONE;
+          did_encode_px = 1;
         }
       }
     }
+
+    // DEBUG: print stats
+    printf("%d full, %d encoded, %d bytes\n", n_full, n_encoded, info->n_bytes);
   }
 
-  return 0;
+  return img;
 }
 
 int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
@@ -599,11 +620,13 @@ int main(int argc, char **argv) {
 
   struct bfg_raw raw;
   libpng_decode(&png, &raw);
+  // libpng_write("bfg_out.png", &raw);
 
-  libpng_write("bfg_out.png", &raw);
+  struct bfg_info info;
+  bfg_img_t img = bfg_encode(&raw, &info);
 
   libpng_free(&png);
-  bfg_free(&raw, NULL);
+  bfg_free(&raw, img);
 
   return 0;
 }
