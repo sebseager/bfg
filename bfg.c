@@ -196,31 +196,31 @@ int libpng_decode(png_data_t png, bfg_raw_t raw) {
  * writes it to the file specified by fpath.
  * Returns 0 on success, nonzero on failure. */
 int libpng_write(char *fpath, bfg_raw_t raw) {
-  png_data_t png = BFG_MALLOC(sizeof(struct png_data));
-  if (!fpath || !raw || !png) {
+  struct png_data png;
+  if (!fpath || !raw) {
     return 1;
   }
 
-  png->row_ptrs = NULL; // won't need this, don't leave uninitialized though
-  png->file_mode = 'w';
-  png->fp = fopen(fpath, "wb");
-  if (!png->fp) {
+  png.row_ptrs = NULL; // won't need this, don't leave uninitialized though
+  png.file_mode = 'w';
+  png.fp = fopen(fpath, "wb");
+  if (!png.fp) {
     fprintf(stderr, "Could not write to %s\n", fpath);
     return 1;
   }
 
-  png->png_ptr =
+  png.png_ptr =
       png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-  if (!png->png_ptr) {
+  if (!png.png_ptr) {
     return 1;
   }
 
-  png->info_ptr = png_create_info_struct(png->png_ptr);
-  if (!png->info_ptr) {
+  png.info_ptr = png_create_info_struct(png.png_ptr);
+  if (!png.info_ptr) {
     return 1;
   }
 
-  png_init_io(png->png_ptr, png->fp);
+  png_init_io(png.png_ptr, png.fp);
 
   png_byte color_type;
   switch (raw->n_channels) {
@@ -242,18 +242,18 @@ int libpng_write(char *fpath, bfg_raw_t raw) {
     return 1;
   }
 
-  png_set_IHDR(png->png_ptr, png->info_ptr, raw->width, raw->height,
+  png_set_IHDR(png.png_ptr, png.info_ptr, raw->width, raw->height,
                BFG_BIT_DEPTH, color_type, PNG_INTERLACE_NONE,
                PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
-  png_write_info(png->png_ptr, png->info_ptr);
+  png_write_info(png.png_ptr, png.info_ptr);
 
   png_uint_32 row_bytes = raw->width * raw->n_channels;
   for (png_uint_32 y = 0; y < raw->height; y++) {
-    png_write_row(png->png_ptr, raw->pixels + FLAT_INDEX(0, y, row_bytes));
+    png_write_row(png.png_ptr, raw->pixels + FLAT_INDEX(0, y, row_bytes));
   }
 
-  png_write_end(png->png_ptr, NULL);
-  libpng_free(png);
+  png_write_end(png.png_ptr, NULL);
+  libpng_free(&png);
 
   return 0;
 }
@@ -599,9 +599,10 @@ int main(int argc, char **argv) {
 
   struct bfg_raw raw;
   libpng_decode(&png, &raw);
-  libpng_free(&png);
 
   libpng_write("bfg_out.png", &raw);
+
+  libpng_free(&png);
   bfg_free(&raw, NULL);
 
   return 0;
