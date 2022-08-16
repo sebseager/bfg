@@ -320,12 +320,14 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
     int do_change_block = 0;
 
     // DEBUG ONLY
+    // TODO: remove when done
     unsigned int n_encoded = 0;
     unsigned int n_full = 0;
 
     while (read_i < n_px) {
       const int8_t diff = curr - prev;
       const uint8_t next_diff = next[0] - curr;
+      const uint8_t next_next_diff = next[1] - next[0]; // TODO: do we need
       const int can_continue_run = diff == 0;
       const int can_start_run = can_continue_run && next_diff == 0;
       const int can_continue_diff = IN_RANGE(diff, min_diff, max_diff);
@@ -379,7 +381,7 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
         }
         uint8_t offset_bits =
             (BFG_BIT_DEPTH - block_len * BFG_DIFF_BITS) % BFG_BIT_DEPTH;
-        if (offset_bits == BFG_BIT_DEPTH - BFG_DIFF_BITS) {
+        if (offset_bits == 0) {
           // we're at a byte boundary, so good place to switch
           if (can_start_run) {
             do_change_block = 1;
@@ -430,6 +432,10 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
             break;
           }
 
+          // TODO: DEBUG
+          printf("BLOCK %d: %d %d %d\n", active_block, block_header_idx,
+                 block_len, block_bytes);
+
           info->n_bytes += block_bytes;
           block_header_idx += block_bytes + 1;
           block_len = 0;
@@ -446,6 +452,7 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
           }
         }
 
+        // TODO: DEBUG
         if (active_block == BFG_BLOCK_FULL) {
           n_full++;
         } else {
@@ -458,6 +465,9 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
 
       // advance to next pixel
       if (did_encode_px) {
+        // TODO: DEBUG
+        printf("PX %d %d\n", read_i, curr);
+
         read_i++;
         did_encode_px = 0;
 
@@ -465,7 +475,7 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
         curr = next[0];
         next[0] = next[1];
         if (read_i < n_px - 2) {
-          next[1] = raw->pixels[read_i * info->n_channels + c];
+          next[1] = raw->pixels[(read_i + 2) * info->n_channels + c];
         }
 
         // about to look at final pixel so write block after next iteration
@@ -517,12 +527,11 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
     const uint32_t write_i = px_i * raw->n_channels + channel;
     const uint8_t prev = px_i > 0 ? raw->pixels[write_i - raw->n_channels] : 0;
 
-    printf("TEST %d %d %d %d %d\n", block_type, read_i, px_i, channel, write_i);
-
     if (block_len == 0) {
       // read block header
       block_type = (bfg_block_type_t)READ_BITS(&img[read_i], BFG_TAG_BITS,
                                                BFG_BIT_DEPTH - BFG_TAG_BITS);
+      printf("%d\n", block_type);
       block_len = READ_BITS(&img[read_i], BFG_BIT_DEPTH - BFG_TAG_BITS, 0) + 1;
 
       // process header-only blocks here
