@@ -295,7 +295,8 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
     return NULL;
   }
 
-  const uint16_t max_block_entries = TWO_POWER(BFG_BIT_DEPTH - BFG_TAG_BITS);
+  const uint16_t max_block_entries =
+      TWO_POWER(BFG_BIT_DEPTH - BFG_TAG_BITS) - 1;
   const int16_t max_diff = max_block_entries >> 1;
   const int16_t min_diff = -max_diff;
 
