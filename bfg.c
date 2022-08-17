@@ -1,5 +1,5 @@
 #include "bfg.h"
-#include <assert.h>
+#include <assert.h>  // TODO: REMOVE
 #include <limits.h>
 #include <png.h>
 #include <stdint.h>
@@ -14,14 +14,6 @@
 #define PROD_FITS_TYPE(a, b, max_val) ((a) > (max_val) / (b) ? 0 : 1)
 #define IN_RANGE(val, min, max) (((val) >= (min)) & ((val) <= (max)))
 #define CEIL_DIV(num, den) (((num) - 1) / (den) + 1)
-
-// TODO: DEBUG
-#define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
-#define BYTE_TO_BINARY(byte)                                                   \
-  (byte & 0x80 ? '1' : '0'), (byte & 0x40 ? '1' : '0'),                        \
-      (byte & 0x20 ? '1' : '0'), (byte & 0x10 ? '1' : '0'),                    \
-      (byte & 0x08 ? '1' : '0'), (byte & 0x04 ? '1' : '0'),                    \
-      (byte & 0x02 ? '1' : '0'), (byte & 0x01 ? '1' : '0')
 
 // write width bits of value to byte_ptr, shifted offset bits to the left
 // so if *p = 0b0100001, after WRITE_BITS(p, 0b101, 3, 2), *p = 0b0110101
@@ -160,7 +152,6 @@ int libpng_read(char *fpath, png_data_t png) {
   // must not happen before png_set_expand
   png_read_image(png->png_ptr, png->row_ptrs);
   png_read_end(png->png_ptr, png->info_ptr);
-  FCLOSE(png->fp);
 
   return 0;
 }
@@ -331,11 +322,6 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
     int did_encode_px = 0;
     int do_change_block = 0;
 
-    // DEBUG ONLY
-    // TODO: remove when done
-    unsigned int n_encoded = 0;
-    unsigned int n_full = 0;
-
     while (read_i < n_px) {
       // TODO wraparound diffs
       // (0, 254) diff is 254 or -2
@@ -454,10 +440,6 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
             break;
           }
 
-          // TODO: DEBUG
-          // printf("BLOCK %d LEN %d HEAD_I %d\n", active_block, block_len,
-          //        block_header_idx);
-
           info->n_bytes += block_bytes + 1;
           block_header_idx += block_bytes + 1;
           block_len = 0;
@@ -474,22 +456,12 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
           }
         }
 
-        // TODO: DEBUG
-        if (active_block == BFG_BLOCK_FULL) {
-          n_full++;
-        } else {
-          n_encoded++;
-        }
-
         active_block = next_block;
         do_change_block = 0;
       }
 
       // advance to next pixel
       if (did_encode_px) {
-        // TODO: DEBUG
-        // printf("PX %d:\t%d\n", read_i, curr);
-
         read_i++;
         did_encode_px = 0;
 
@@ -501,9 +473,6 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
         }
       }
     }
-
-    // DEBUG: print stats
-    printf("%d full, %d encoded, %d bytes\n", n_full, n_encoded, info->n_bytes);
   }
 
   return img;
@@ -521,9 +490,6 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
   if (!info->width | !info->height | !info->n_channels) {
     return 1;
   }
-
-  printf("DECODE INFO: %d %d %d %d\n", raw->width, raw->height, raw->n_channels,
-         info->n_bytes);
 
   const uint32_t total_px = raw->width * raw->height;
   const uint32_t total_bytes = total_px * raw->n_channels;
@@ -549,10 +515,6 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
         READ_BITS(&img[block_header_idx], BFG_BIT_DEPTH - BFG_TAG_BITS, 0) + 1;
     uint32_t block_bytes = 0; // set in each case below
 
-    // printf("CHAN %d\tPX %d\tHEAD_I %d\n", channel, px_i, block_header_idx);
-    printf("BLOCK %d LEN %d HEAD_I %d\n", block_type, block_len,
-           block_header_idx);
-
     // process block
     switch (block_type) {
     case BFG_BLOCK_FULL: {
@@ -562,7 +524,6 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
       for (uint32_t i = block_start; i < block_end; i++) {
         raw->pixels[(px_i++) * raw->n_channels + channel] = img[i];
         prev = img[i];
-        printf("PX %d:\t%d\n", px_i - 1, img[i]);
       }
       break;
     }
@@ -571,7 +532,6 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
       block_bytes = 0;
       for (uint32_t i = 0; i < block_len; i++) {
         raw->pixels[(px_i++) * raw->n_channels + channel] = prev;
-        printf("PX %d:\t%d\n", px_i - 1, prev);
       }
       break;
     }
@@ -591,25 +551,17 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
           raw->pixels[(px_i++) * raw->n_channels + channel] = prev;
           offset_bits -= BFG_DIFF_BITS;
 
-          // DEBUG
-          printf("PX %d:\t%d\t%d\n", px_i - 1, prev, diff);
-          // printf("PX %d:\t%d\n", px_i - 1, prev);
-
           // we might need to end early if we've exhausted block_len
           block_len--;
           if (block_len == 0) {
             break;
           }
         }
-
-        // exit(0);
       }
       break;
     }
 
     default:
-      // TODO: DEBUG
-      printf("\nBAD THING HAPPENED\n");
       return 1;
     }
 
@@ -617,16 +569,8 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
 
     if (px_i == total_px) {
       channel++;
-      printf("CHAN %d\n", channel);
       px_i = 0;
     }
-
-    // DEBUG ONLY
-    // if (px_i > total_px) {
-    //   printf("\nBAD!!!!!!!!!!!!!!!!!!!!!\n");
-    //   printf("%d %d\n", px_i, total_px);
-    //   return 1;
-    // }
   }
 
   return 0;
@@ -674,56 +618,37 @@ int main(int argc, char **argv) {
   }
 
   struct png_data png;
-  libpng_read(argv[1], &png);
-
   struct bfg_raw raw;
-  libpng_decode(&png, &raw);
-
   struct bfg_info info;
-  bfg_img_t img = bfg_encode(&raw, &info);
 
+  if (libpng_read(argv[1], &png)) {
+    return 1;
+  }
+
+  libpng_decode(&png, &raw);
+  bfg_img_t img = bfg_encode(&raw, &info);
   bfg_write("bfg_out.bfg", &info, img);
 
   struct bfg_info info_in;
-  bfg_img_t img_in = bfg_read("bfg_out.bfg", &info_in);
-
-  // // print pixels
-  // printf("\n");
-  // for (uint32_t i = 0; i < 10; i++) {
-  //   for (uint32_t j = 0; j < info_in.n_channels; j++) {
-  //     printf("%d ", img_in[i * info_in.n_channels + j]);
-  //   }
-  //   printf("\n");
-  // }
-  // printf("\n");
-
-  // // print everything out of info
-  // printf("width: %d\n", info_in.width);
-  // printf("height: %d\n", info_in.height);
-  // printf("n_channels: %d\n", info_in.n_channels);
-  // printf("n_bytes: %d\n", info_in.n_bytes);
-  // printf("magic_tag: %u\n", info_in.magic_tag);
-  // printf("version: %d\n", info_in.version);
-  // printf("\n");
-
   struct bfg_raw raw_in;
+
+  bfg_img_t img_in = bfg_read("bfg_out.bfg", &info_in);
   bfg_decode(&info_in, img_in, &raw_in);
-
-  // // print everything in raw_in
-  // printf("width: %d\n", raw_in.width);
-  // printf("height: %d\n", raw_in.height);
-  // printf("n_channels: %d\n", raw_in.n_channels);
-  // printf("\n");
-
-  // // print first 5 pixels
-  // for (uint32_t i = 0; i < 10; i++) {
-  //   for (uint32_t j = 0; j < raw_in.n_channels; j++) {
-  //     printf("%d ", raw_in.pixels[i * raw_in.n_channels + j]);
-  //   }
-  //   printf("\n");
-  // }
-
   libpng_write("bfg_out.png", &raw_in);
+
+  // DEBUG - converting back to a PNG must give the same size!!
+  // it doesn't.... that's not good, let's figure out why
+  struct png_data png2;
+  libpng_read("bfg_out.png", &png2);
+
+  // print sizes
+  unsigned long raw_sz = sizeof(struct bfg_raw) + raw.width * raw.height * raw.n_channels;
+  fseek(png.fp, 0L, SEEK_END);
+  unsigned long png_sz = ftell(png.fp);
+  unsigned long bfg_sz = info.n_bytes;
+  printf("raw bytes: %lu\n", raw_sz);
+  printf("png bytes: %lu (%d%%)\n", png_sz, (int)(100 * png_sz / raw_sz));
+  printf("bfg bytes: %lu (%d%%)\n", bfg_sz, (int)(100 * bfg_sz / raw_sz));
 
   libpng_free(&png);
   bfg_free(&raw, img);
