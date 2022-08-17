@@ -313,7 +313,7 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
 
   for (uint8_t c = 0; c < info->n_channels; c++) {
     bfg_block_type_t active_block = BFG_BLOCK_FULL;
-    bfg_block_type_t next_block = BFG_BLOCK_NONE;
+    bfg_block_type_t next_block = BFG_BLOCK_FULL;
 
     uint32_t read_i = 0;
     uint8_t prev = 0;
@@ -390,20 +390,17 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
         }
         unsigned int offset_bits =
             (BFG_BIT_DEPTH - block_len * BFG_DIFF_BITS) % BFG_BIT_DEPTH;
-        printf("offset_bits: %d\n", offset_bits);
         if (offset_bits == 0) {
           // we're at a byte boundary, so good place to switch
           if (can_start_run) {
             do_change_block = 1;
             next_block = BFG_BLOCK_RUN;
-            // exit(0);
           }
         }
         if (!do_change_block && can_continue_diff) {
           did_encode_px = 1;
           block_len++;
           offset_bits = (offset_bits - BFG_DIFF_BITS) % BFG_BIT_DEPTH;
-          printf("offset_bits: %d\n", offset_bits);
           uint32_t bytes_ahead =
               CEIL_DIV(block_len * BFG_DIFF_BITS, BFG_BIT_DEPTH);
           uint8_t *dest = &img[block_header_idx + bytes_ahead];
@@ -420,8 +417,8 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
         break;
       }
 
-      // switch blocks
-      if (do_change_block) {
+      // end block (either switch blocks or reached end of channel)
+      if (do_change_block || read_i == n_px - 1) {
         // if block was empty we don't need to write anything
         if (block_len > 0) {
           // write old block's header
@@ -489,13 +486,6 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
         if (read_i < n_px - 2) {
           next[1] = raw->pixels[(read_i + 2) * info->n_channels + c];
         }
-
-        // about to look at final pixel so write block after next iteration
-        if (read_i == n_px - 1) {
-          do_change_block = 1;
-          next_block = BFG_BLOCK_NONE;
-          did_encode_px = 1;
-        }
       }
     }
 
@@ -559,7 +549,7 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
       for (uint32_t i = block_start; i < block_end; i++) {
         raw->pixels[(px_i++) * raw->n_channels + channel] = img[i];
         prev = img[i];
-        printf("PX %d:\t%d\n", px_i, img[i]);
+        printf("PX %d:\t%d\n", px_i - 1, img[i]);
       }
       break;
     }
@@ -568,7 +558,7 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
       block_bytes = 0;
       for (uint32_t i = 0; i < block_len; i++) {
         raw->pixels[(px_i++) * raw->n_channels + channel] = prev;
-        printf("PX %d:\t%d\n", px_i, prev);
+        printf("PX %d:\t%d\n", px_i - 1, prev);
       }
       break;
     }
@@ -578,20 +568,15 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
       block_bytes = CEIL_DIV(block_len * BFG_DIFF_BITS, BFG_BIT_DEPTH);
       for (uint32_t i = block_start; i < block_start + block_bytes; i++) {
         int offset_bits = BFG_BIT_DEPTH - BFG_DIFF_BITS;
-
-        // DEBUG: print byte as binary
-        printf("%d: " BYTE_TO_BINARY_PATTERN "\n", i, BYTE_TO_BINARY(img[i]));
-
         while (offset_bits >= 0) {
-          int8_t diff = READ_BITS(&img[i], BFG_DIFF_BITS - 1, offset_bits);
-          printf("DIFF %d\n", diff);
-
-          diff *= -1 * READ_BITS(&img[i], 1, offset_bits + BFG_DIFF_BITS - 1);
+          uint8_t *dest = &img[i];
+          int8_t diff = READ_BITS(dest, BFG_DIFF_BITS - 1, offset_bits);
+          diff *= READ_BITS(dest, 1, offset_bits + BFG_DIFF_BITS - 1) ? -1 : 1;
           prev += diff;
           raw->pixels[(px_i++) * raw->n_channels + channel] = prev;
           offset_bits -= BFG_DIFF_BITS;
 
-          printf("PX %d:\t%d\n", px_i, prev);
+          printf("PX %d:\t%d\n", px_i - 1, prev);
 
           // we might need to end early if we've exhausted block_len
           block_len--;
@@ -613,18 +598,18 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
 
     block_header_idx += block_bytes + 1;
 
-    if (px_i == total_px - 1) {
+    if (px_i == total_px) {
       channel++;
       printf("CHAN %d\n", channel);
       px_i = 0;
     }
 
     // DEBUG ONLY
-    if (px_i > total_px) {
-      printf("\nBAD!!!!!!!!!!!!!!!!!!!!!\n");
-      printf("%d %d\n", px_i, total_px);
-      return 1;
-    }
+    // if (px_i > total_px) {
+    //   printf("\nBAD!!!!!!!!!!!!!!!!!!!!!\n");
+    //   printf("%d %d\n", px_i, total_px);
+    //   return 1;
+    // }
   }
 
   return 0;
