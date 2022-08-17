@@ -419,7 +419,7 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
                      BFG_BIT_DEPTH - BFG_TAG_BITS, 0);
 
           // some blocks take up less than block_len bytes
-          int32_t block_bytes;
+          uint32_t block_bytes;
           switch (active_block) {
           case BFG_BLOCK_RUN:
             block_bytes = 0;
@@ -433,10 +433,10 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
           }
 
           // TODO: DEBUG
-          printf("BLOCK %d: %d %d %d\n", active_block, block_header_idx,
-                 block_len, block_bytes);
+          printf("BLOCK %d LEN %d HEAD_I %d\n", active_block, block_len,
+                 block_header_idx);
 
-          info->n_bytes += block_bytes;
+          info->n_bytes += block_bytes + 1;
           block_header_idx += block_bytes + 1;
           block_len = 0;
 
@@ -466,7 +466,7 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
       // advance to next pixel
       if (did_encode_px) {
         // TODO: DEBUG
-        printf("PX %d %d\n", read_i, curr);
+        // printf("PX %d %d\n", read_i, curr);
 
         read_i++;
         did_encode_px = 0;
@@ -503,6 +503,13 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
   raw->height = info->height;
   raw->n_channels = info->n_channels;
 
+  if (!info->width | !info->height | !info->n_channels) {
+    return 1;
+  }
+
+  printf("DECODE INFO: %d %d %d %d\n", raw->width, raw->height, raw->n_channels,
+         info->n_bytes);
+
   const uint32_t total_px = raw->width * raw->height;
   const uint32_t total_bytes = total_px * raw->n_channels;
   if (!PROD_FITS_TYPE(raw->width, raw->height, UINT32_MAX) ||
@@ -515,72 +522,84 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
     return 1;
   }
 
-  bfg_block_type_t block_type;
-  uint32_t block_len = 0;
-  uint32_t read_i = 0;
-  uint32_t px_i = 0;
   uint8_t channel = 0;
+  uint32_t block_header_idx = 0;
+  uint32_t px_i = 0;
+  uint8_t prev = 0;
 
-  while (read_i < info->n_bytes) {
-    assert(channel < raw->n_channels);
+  while (1) {
+    const bfg_block_type_t block_type = (bfg_block_type_t)READ_BITS(
+        &img[block_header_idx], BFG_TAG_BITS, BFG_BIT_DEPTH - BFG_TAG_BITS);
+    uint32_t block_len =
+        READ_BITS(&img[block_header_idx], BFG_BIT_DEPTH - BFG_TAG_BITS, 0) + 1;
+    uint32_t block_bytes = 0; // set in each case below
 
-    const uint32_t write_i = px_i * raw->n_channels + channel;
-    const uint8_t prev = px_i > 0 ? raw->pixels[write_i - raw->n_channels] : 0;
+    // printf("CHAN %d\tPX %d\tHEAD_I %d\n", channel, px_i, block_header_idx);
+    printf("BLOCK %d LEN %d HEAD_I %d\n", block_type, block_len,
+           block_header_idx);
 
-    if (block_len == 0) {
-      // read block header
-      block_type = (bfg_block_type_t)READ_BITS(&img[read_i], BFG_TAG_BITS,
-                                               BFG_BIT_DEPTH - BFG_TAG_BITS);
-      printf("%d\n", block_type);
-      block_len = READ_BITS(&img[read_i], BFG_BIT_DEPTH - BFG_TAG_BITS, 0) + 1;
-
-      // process header-only blocks here
-      if (block_type == BFG_BLOCK_RUN) {
-        for (uint32_t i = 0; i < block_len; i++) {
-          raw->pixels[write_i + raw->n_channels * i] = prev;
-        }
-        px_i += block_len;
-        block_len = 0;
+    // process block
+    switch (block_type) {
+    case BFG_BLOCK_FULL: {
+      const uint32_t block_start = block_header_idx + 1;
+      block_bytes = block_len;
+      const uint32_t block_end = block_start + block_bytes;
+      for (uint32_t i = block_start; i < block_end; i++) {
+        raw->pixels[(px_i++) * raw->n_channels + channel] = img[i];
       }
-    } else {
-      // decode block data one byte at a time
-      switch (block_type) {
-      case BFG_BLOCK_FULL: {
-        raw->pixels[write_i] = img[read_i];
-        px_i++;
-        block_len--;
-        break;
-      }
-
-      case BFG_BLOCK_DIFF: {
-        // write out all diffs in this byte (BFG_BIT_DEPTH / BFG_DIFF_BITS)
-        int8_t offset_n = 0;
-        int8_t offset_bits = BFG_BIT_DEPTH - BFG_DIFF_BITS;
-        int8_t diff = 0;
-        while (offset_bits >= 0 && block_len > 0) {
-          diff += -1 *
-                  READ_BITS(&img[read_i], 1, offset_bits + BFG_DIFF_BITS - 1) *
-                  READ_BITS(&img[read_i], BFG_DIFF_BITS - 1, offset_bits);
-          raw->pixels[write_i + raw->n_channels * offset_n] = prev + diff;
-          offset_n++;
-          offset_bits -= BFG_DIFF_BITS;
-          block_len--;
-        }
-        assert(offset_n == BFG_BIT_DEPTH / BFG_DIFF_BITS);
-        px_i += offset_n;
-        break;
-      }
-
-      default:
-        return 1;
-      }
-
-      if (px_i == total_px) {
-        channel++;
-      }
-
-      read_i++;
+      prev = img[block_end - 1];
+      break;
     }
+
+    case BFG_BLOCK_RUN: {
+      block_bytes = 0;
+      for (uint32_t i = 0; i < block_len; i++) {
+        raw->pixels[(px_i++) * raw->n_channels + channel] = prev;
+      }
+      break;
+    }
+
+    case BFG_BLOCK_DIFF: {
+      const uint32_t block_start = block_header_idx + 1;
+      block_bytes = CEIL_DIV(block_len * BFG_DIFF_BITS, BFG_BIT_DEPTH);
+      for (uint32_t i = block_start; i < block_start + block_bytes; i++) {
+        int8_t offset_bits = BFG_BIT_DEPTH - BFG_DIFF_BITS;
+        while (offset_bits >= 0) {
+          int8_t diff = READ_BITS(&img[i], BFG_DIFF_BITS - 1, offset_bits);
+          diff *= -1 * READ_BITS(&img[i], 1, offset_bits + BFG_DIFF_BITS - 1);
+          prev += diff;
+          raw->pixels[(px_i++) * raw->n_channels + channel] = prev;
+          offset_bits -= BFG_DIFF_BITS;
+
+          // we might need to end early if we've exhausted block_len
+          block_len--;
+          if (block_len == 0) {
+            break;
+          }
+        }
+      }
+      break;
+    }
+
+    default:
+      printf("\nBAD THING HAPPENED\n");
+      return 1;
+    }
+
+    block_header_idx += block_bytes + 1;
+
+    if (px_i == total_px - 1) {
+      channel++;
+      printf("CHAN %d\n", channel);
+      px_i = 0;
+    }
+
+    // DEBUG ONLY
+    // if (px_i > total_px) {
+    //   printf("\nBAD!!!!!!!!!!!!!!!!!!!!!\n");
+    //   printf("%d %d\n", px_i, total_px);
+    //   return 1;
+    // }
   }
 
   return 0;
@@ -641,41 +660,41 @@ int main(int argc, char **argv) {
   struct bfg_info info_in;
   bfg_img_t img_in = bfg_read("bfg_out.bfg", &info_in);
 
-  // print pixels
-  printf("\n");
-  for (uint32_t i = 0; i < 10; i++) {
-    for (uint32_t j = 0; j < info_in.n_channels; j++) {
-      printf("%d ", img_in[i * info_in.n_channels + j]);
-    }
-    printf("\n");
-  }
-  printf("\n");
+  // // print pixels
+  // printf("\n");
+  // for (uint32_t i = 0; i < 10; i++) {
+  //   for (uint32_t j = 0; j < info_in.n_channels; j++) {
+  //     printf("%d ", img_in[i * info_in.n_channels + j]);
+  //   }
+  //   printf("\n");
+  // }
+  // printf("\n");
 
-  // print everything out of info
-  printf("width: %d\n", info_in.width);
-  printf("height: %d\n", info_in.height);
-  printf("n_channels: %d\n", info_in.n_channels);
-  printf("n_bytes: %d\n", info_in.n_bytes);
-  printf("magic_tag: %u\n", info_in.magic_tag);
-  printf("version: %d\n", info_in.version);
-  printf("\n");
+  // // print everything out of info
+  // printf("width: %d\n", info_in.width);
+  // printf("height: %d\n", info_in.height);
+  // printf("n_channels: %d\n", info_in.n_channels);
+  // printf("n_bytes: %d\n", info_in.n_bytes);
+  // printf("magic_tag: %u\n", info_in.magic_tag);
+  // printf("version: %d\n", info_in.version);
+  // printf("\n");
 
   struct bfg_raw raw_in;
   bfg_decode(&info_in, img_in, &raw_in);
 
-  // print everything in raw_in
-  printf("width: %d\n", raw_in.width);
-  printf("height: %d\n", raw_in.height);
-  printf("n_channels: %d\n", raw_in.n_channels);
-  printf("\n");
+  // // print everything in raw_in
+  // printf("width: %d\n", raw_in.width);
+  // printf("height: %d\n", raw_in.height);
+  // printf("n_channels: %d\n", raw_in.n_channels);
+  // printf("\n");
 
-  // print first 5 pixels
-  for (uint32_t i = 0; i < 10; i++) {
-    for (uint32_t j = 0; j < raw_in.n_channels; j++) {
-      printf("%d ", raw_in.pixels[i * raw_in.n_channels + j]);
-    }
-    printf("\n");
-  }
+  // // print first 5 pixels
+  // for (uint32_t i = 0; i < 10; i++) {
+  //   for (uint32_t j = 0; j < raw_in.n_channels; j++) {
+  //     printf("%d ", raw_in.pixels[i * raw_in.n_channels + j]);
+  //   }
+  //   printf("\n");
+  // }
 
   libpng_write("bfg_out.png", &raw_in);
 
