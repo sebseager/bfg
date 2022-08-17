@@ -527,7 +527,7 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
   uint32_t px_i = 0;
   uint8_t prev = 0;
 
-  while (1) {
+  while (block_header_idx < info->n_bytes) {
     const bfg_block_type_t block_type = (bfg_block_type_t)READ_BITS(
         &img[block_header_idx], BFG_TAG_BITS, BFG_BIT_DEPTH - BFG_TAG_BITS);
     uint32_t block_len =
@@ -582,6 +582,7 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
     }
 
     default:
+      // TODO: DEBUG
       printf("\nBAD THING HAPPENED\n");
       return 1;
     }
@@ -595,11 +596,11 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
     }
 
     // DEBUG ONLY
-    // if (px_i > total_px) {
-    //   printf("\nBAD!!!!!!!!!!!!!!!!!!!!!\n");
-    //   printf("%d %d\n", px_i, total_px);
-    //   return 1;
-    // }
+    if (px_i > total_px) {
+      printf("\nBAD!!!!!!!!!!!!!!!!!!!!!\n");
+      printf("%d %d\n", px_i, total_px);
+      return 1;
+    }
   }
 
   return 0;
