@@ -305,8 +305,11 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
 
   const uint16_t max_block_entries =
       TWO_POWER(BFG_BIT_DEPTH - BFG_TAG_BITS) - 1;
-  const int16_t max_diff = max_block_entries >> 1;
-  const int16_t min_diff = -max_diff;
+
+  // e.g. for 4 diff bits, allowed range is [-16,15]
+  //      0000 = 0, 0001 = 1, 1000 = -1, 1001 = -2
+  const int16_t max_diff = TWO_POWER(BFG_DIFF_BITS - 1) - 1;
+  const int16_t min_diff = -max_diff - 1;
 
   uint32_t block_header_idx = 0;
   uint32_t block_len = 0;
@@ -334,9 +337,14 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
     unsigned int n_full = 0;
 
     while (read_i < n_px) {
-      const int8_t diff = curr - prev;
-      const int8_t next_diff = next[0] - curr;
-      const int8_t next_next_diff = next[1] - next[0]; // TODO: do we need
+      // TODO wraparound diffs
+      // (0, 254) diff is 254 or -2
+      // (254, 2) diff is -252 or 4
+      // max we can do is plus or minus 7
+
+      const int16_t diff = curr - prev;
+      const int16_t next_diff = next[0] - curr;
+      const int16_t next_next_diff = next[1] - next[0]; // TODO: do we need
       const int can_continue_run = diff == 0;
       const int can_start_run = can_continue_run && next_diff == 0;
       const int can_continue_diff = IN_RANGE(diff, min_diff, max_diff);
@@ -404,8 +412,13 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
           uint32_t bytes_ahead =
               CEIL_DIV(block_len * BFG_DIFF_BITS, BFG_BIT_DEPTH);
           uint8_t *dest = &img[block_header_idx + bytes_ahead];
-          WRITE_BITS(dest, diff < 0, 1, offset_bits + BFG_DIFF_BITS - 1);
-          WRITE_BITS(dest, diff, BFG_DIFF_BITS - 1, offset_bits);
+          if (diff < 0) {
+            WRITE_BITS(dest, 1, 1, offset_bits + BFG_DIFF_BITS - 1);
+            WRITE_BITS(dest, diff - 1, BFG_DIFF_BITS - 1, offset_bits);
+          } else {
+            WRITE_BITS(dest, 0, 1, offset_bits + BFG_DIFF_BITS - 1);
+            WRITE_BITS(dest, diff, BFG_DIFF_BITS - 1, offset_bits);
+          }          
         } else {
           do_change_block = 1;
           next_block = BFG_BLOCK_FULL;
@@ -570,13 +583,18 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
         int offset_bits = BFG_BIT_DEPTH - BFG_DIFF_BITS;
         while (offset_bits >= 0) {
           uint8_t *dest = &img[i];
-          int8_t diff = READ_BITS(dest, BFG_DIFF_BITS - 1, offset_bits);
-          diff *= READ_BITS(dest, 1, offset_bits + BFG_DIFF_BITS - 1) ? -1 : 1;
+          int16_t diff = 0;
+          if (READ_BITS(dest, 1, offset_bits + BFG_DIFF_BITS - 1) == 1) {
+            diff = READ_BITS(dest, BFG_DIFF_BITS - 1, offset_bits);
+          } else {
+            diff = -1 * (READ_BITS(dest, BFG_DIFF_BITS - 1, offset_bits) + 1);
+          }
           prev += diff;
           raw->pixels[(px_i++) * raw->n_channels + channel] = prev;
           offset_bits -= BFG_DIFF_BITS;
 
-          printf("PX %d:\t%d\n", px_i - 1, prev);
+          // DEBUG
+          printf("PX %d:\t%d\t%d\n", px_i - 1, prev, diff);
 
           // we might need to end early if we've exhausted block_len
           block_len--;
