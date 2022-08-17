@@ -13,4 +13,4 @@ if __name__ == "__main__":
     for i, chan in enumerate(channels):
         print(f"-- CHAN {i} --")
         for j, p in enumerate(chan):
-            print(f"{j}:\t{p}")
+            print(f"PX {j}:\t{p}")
