@@ -55,7 +55,6 @@ ASSUMPTIONS
  * with a value < 0 should ever appear in a valid BFG file. These are provided
  * for ease of implementation only. */
 typedef enum {
-  BFG_BLOCK_NONE = -1,
   BFG_BLOCK_FULL = 0,
   BFG_BLOCK_RUN = 1,
   BFG_BLOCK_DIFF = 2,

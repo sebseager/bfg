@@ -1,11 +1,11 @@
 #include "bfg.h"
-#include <assert.h>  // TODO: REMOVE
 #include <limits.h>
 #include <png.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define FLAT_INDEX(x, y, w) ((y) * (w) + (x))
 #define FCLOSE(fp) ((fp) ? fclose((fp)) : 0, (fp) = NULL)
@@ -13,7 +13,8 @@
 #define TWO_POWER(pow) (1 << (pow))
 #define PROD_FITS_TYPE(a, b, max_val) ((a) > (max_val) / (b) ? 0 : 1)
 #define IN_RANGE(val, min, max) (((val) >= (min)) & ((val) <= (max)))
-#define CEIL_DIV(num, den) (((num) - 1) / (den) + 1)
+#define CEIL_DIV(num, den) (((num)-1) / (den) + 1)
+#define MILLIS_SINCE(time) (((double)clock() - (time)) * 1000 / CLOCKS_PER_SEC)
 
 // write width bits of value to byte_ptr, shifted offset bits to the left
 // so if *p = 0b0100001, after WRITE_BITS(p, 0b101, 3, 2), *p = 0b0110101
@@ -411,9 +412,6 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
         }
         break;
       }
-
-      default:
-        break;
       }
 
       // end block (either switch blocks or reached end of channel)
@@ -524,6 +522,7 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
       for (uint32_t i = block_start; i < block_end; i++) {
         raw->pixels[(px_i++) * raw->n_channels + channel] = img[i];
         prev = img[i];
+        // printf("PX %d:\t%d\n", px_i - 1, prev); // DEBUG
       }
       break;
     }
@@ -532,6 +531,7 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
       block_bytes = 0;
       for (uint32_t i = 0; i < block_len; i++) {
         raw->pixels[(px_i++) * raw->n_channels + channel] = prev;
+        // printf("PX %d:\t%d\n", px_i - 1, prev); // DEBUG
       }
       break;
     }
@@ -551,6 +551,8 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
           raw->pixels[(px_i++) * raw->n_channels + channel] = prev;
           offset_bits -= BFG_DIFF_BITS;
 
+          // printf("PX %d:\t%d\n", px_i - 1, prev); // DEBUG
+
           // we might need to end early if we've exhausted block_len
           block_len--;
           if (block_len == 0) {
@@ -560,9 +562,6 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
       }
       break;
     }
-
-    default:
-      return 1;
     }
 
     block_header_idx += block_bytes + 1;
@@ -617,6 +616,8 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  clock_t begin;
+
   struct png_data png;
   struct bfg_raw raw;
   struct bfg_info info;
@@ -625,16 +626,30 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  begin = clock();
   libpng_decode(&png, &raw);
+  printf("millis (png decode): %f\n", MILLIS_SINCE(begin));
+
+  begin = clock();
   bfg_img_t img = bfg_encode(&raw, &info);
   bfg_write("bfg_out.bfg", &info, img);
+  printf("millis (bfg encode): %f\n", MILLIS_SINCE(begin));
 
   struct bfg_info info_in;
   struct bfg_raw raw_in;
 
   bfg_img_t img_in = bfg_read("bfg_out.bfg", &info_in);
+  if (!img_in) {
+    return 1;
+  }
+
+  begin = clock();
   bfg_decode(&info_in, img_in, &raw_in);
+  printf("millis (bfg decode): %f\n", MILLIS_SINCE(begin));
+
+  begin = clock();
   libpng_write("bfg_out.png", &raw_in);
+  printf("millis (png encode): %f\n", MILLIS_SINCE(begin));
 
   // DEBUG - converting back to a PNG must give the same size!!
   // it doesn't.... that's not good, let's figure out why
@@ -642,7 +657,8 @@ int main(int argc, char **argv) {
   libpng_read("bfg_out.png", &png2);
 
   // print sizes
-  unsigned long raw_sz = sizeof(struct bfg_raw) + raw.width * raw.height * raw.n_channels;
+  unsigned long raw_sz =
+      sizeof(struct bfg_raw) + raw.width * raw.height * raw.n_channels;
   fseek(png.fp, 0L, SEEK_END);
   unsigned long png_sz = ftell(png.fp);
   unsigned long bfg_sz = info.n_bytes;
