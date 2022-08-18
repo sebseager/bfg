@@ -17,11 +17,17 @@ struct stats {
   char name[FILENAME_LEN + 1];
 };
 
-void strip_ext(char *fname) {
-  char *ext = strrchr(fname, '.');
-  if (ext) {
-    *ext = '\0';
+void set_name_stat(char *fname, struct stats *s) {
+  char *base = basename(fname);
+  for (int i = 0; i < FILENAME_LEN; i++) {
+    if (base[i] == '\0') {
+      // write spaces in case name is short
+      memset(&s->name[i], ' ', FILENAME_LEN);
+      break;
+    }
+    s->name[i] = base[i];
   }
+  s->name[FILENAME_LEN] = '\0';
 }
 
 void print_stats(struct stats *stats, unsigned int n_img) {
@@ -90,14 +96,8 @@ int main(int argc, char **argv) {
     libpng_write("bfg_out.png", &raw_in);
     stats_arr[i].png_enc_millis = MILLIS_SINCE(begin);
 
-    // write image name to stats
-    // strip_ext modifies argv, so do after everything else
-    char *name = basename(argv[i + 1]);
-    strip_ext(name);
-    strncpy(stats_arr[i].name, name, FILENAME_LEN);
-    stats_arr[i].name[FILENAME_LEN] = '\0';
-
-    // write bytes to stats
+    // write stats
+    set_name_stat(argv[i + 1], &stats_arr[i]);
     stats_arr[i].raw_bytes =
         sizeof(struct bfg_raw) + raw.width * raw.height * raw.n_channels;
     fseek(png.fp, 0L, SEEK_END);
