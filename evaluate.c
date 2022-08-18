@@ -62,12 +62,12 @@ int main(int argc, char **argv) {
     struct bfg_info info;
 
     if (libpng_read(argv[i + 1], &png)) {
-      return 1;
+      continue;
     }
 
     begin = clock();
     if (libpng_decode(&png, &raw)) {
-      return 1;
+      continue;
     }
     stats_arr[i].png_dec_millis = MILLIS_SINCE(begin);
 
@@ -75,25 +75,31 @@ int main(int argc, char **argv) {
     bfg_img_t img = bfg_encode(&raw, &info);
     stats_arr[i].bfg_enc_millis = MILLIS_SINCE(begin);
     if (!img) {
-      return 1;
+      continue;
     }
 
-    bfg_write("bfg_out.bfg", &info, img);
+    if (!bfg_write("bfg_out.bfg", &info, img)) {
+      continue;
+    }
 
     struct bfg_info info_in;
     struct bfg_raw raw_in;
 
     bfg_img_t img_in = bfg_read("bfg_out.bfg", &info_in);
     if (!img_in) {
-      return 1;
+      continue;
     }
 
     begin = clock();
-    bfg_decode(&info_in, img_in, &raw_in);
+    if (!bfg_decode(&info_in, img_in, &raw_in)) {
+      continue;
+    }
     stats_arr[i].bfg_dec_millis = MILLIS_SINCE(begin);
 
     begin = clock();
-    libpng_write("bfg_out.png", &raw_in);
+    if (!libpng_write("bfg_out.png", &raw_in)) {
+      continue;
+    }
     stats_arr[i].png_enc_millis = MILLIS_SINCE(begin);
 
     // write stats
