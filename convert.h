@@ -1,7 +1,5 @@
-#define BFG_IMPLEMENTATION
 #include "bfg.h"
 #include <png.h>
-#include <stdint.h>
 
 /* -------------- */
 /* PNG conversion */

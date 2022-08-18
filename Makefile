@@ -1,10 +1,12 @@
 CC ?= gcc
 CFLAGS = -std=c99 -pedantic -Wall -Wextra -O3 -g3
 LFLAGS = -lpng
-TARGET = bfg
+SOURCES = test.c bfg.c png_convert.c
+HEADERS = bfg.h convert.h util.h
+TARGET = test
 
-$(TARGET): bfg.c bfg.h
-	$(CC) $(CFLAGS) bfg.c -o $(TARGET) $(LFLAGS)
+$(TARGET): $(SOURCES)
+	$(CC) $(CFLAGS) $@ -o $(TARGET) $(LFLAGS)
 
 .PHONY: clean
 clean:
