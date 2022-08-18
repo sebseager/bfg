@@ -128,13 +128,14 @@ int libpng_decode(png_data_t png, bfg_raw_t raw) {
   raw->height = png_get_image_height(png->png_ptr, png->info_ptr);
   raw->n_channels = png_get_channels(png->png_ptr, png->info_ptr);
 
-  const uint32_t total_px = raw->width * raw->height;
-  const uint32_t total_bytes = total_px * raw->n_channels;
-  if (!PROD_FITS_TYPE(raw->width, raw->height, UINT32_MAX) ||
-      !PROD_FITS_TYPE(total_px, raw->n_channels, UINT32_MAX)) {
+
+  // ensure we never need more than BFG_MAX_BYTES bytes
+  if (raw->width >= BFG_MAX_BYTES / raw->height / raw->n_channels) {
     return 1;
   }
 
+  const uint32_t total_px = raw->width * raw->height;
+  const uint32_t total_bytes = total_px * raw->n_channels;
   raw->pixels = malloc(total_bytes);
   if (!raw->pixels) {
     return 1;
@@ -200,7 +201,7 @@ int libpng_write(char *fpath, bfg_raw_t raw) {
   }
 
   png_set_IHDR(png.png_ptr, png.info_ptr, raw->width, raw->height,
-               CONV_BIT_DEPTH, color_type, PNG_INTERLACE_NONE,
+               BFG_BIT_DEPTH, color_type, PNG_INTERLACE_NONE,
                PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
   png_write_info(png.png_ptr, png.info_ptr);
 

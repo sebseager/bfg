@@ -1,4 +1,3 @@
-// #include "bfg.h"
 #include "convert.h"
 #include "util.h"
 

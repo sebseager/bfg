@@ -1,8 +1,7 @@
+#define BFG_IMPLEMENTATION
 #include "bfg.h"
 #include <png.h>
 #include <stdint.h>
-
-#define CONV_BIT_DEPTH (8)
 
 /* -------------- */
 /* PNG conversion */
@@ -32,5 +31,3 @@ int libpng_decode(png_data_t png, bfg_raw_t raw);
  * writes it to the file specified by fpath.
  * Returns 0 on success, nonzero on failure. */
 int libpng_write(char *fpath, bfg_raw_t raw);
-
-

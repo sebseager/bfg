@@ -5,7 +5,6 @@
 #define FCLOSE(fp) ((fp) ? fclose((fp)) : 0, (fp) = NULL)
 #define BIT_MASK(width, offset) ((~(~0ULL << (width)) << (offset)))
 #define TWO_POWER(pow) (1 << (pow))
-#define PROD_FITS_TYPE(a, b, max_val) ((a) > (max_val) / (b) ? 0 : 1)
 #define IN_RANGE(val, min, max) (((val) >= (min)) & ((val) <= (max)))
 #define CEIL_DIV(num, den) (((num)-1) / (den) + 1)
 #define MILLIS_SINCE(time) (((double)clock() - (time)) * 1000 / CLOCKS_PER_SEC)
