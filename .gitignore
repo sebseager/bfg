@@ -1,8 +1,9 @@
+.DS_Store
 .vscode/
 *.dSYM
 *.o
 vgcore.*
 *.png
-bfg
 *.bfg
 images/
+output/
