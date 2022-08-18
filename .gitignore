@@ -3,6 +3,7 @@
 *.dSYM
 *.o
 vgcore.*
+evaluate
 *.png
 *.bfg
 images/

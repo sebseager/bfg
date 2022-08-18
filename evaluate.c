@@ -17,6 +17,13 @@ struct stats {
   char name[FILENAME_LEN + 1];
 };
 
+void strip_ext(char *fname) {
+  char *ext = strrchr(fname, '.');
+  if (ext) {
+    *ext = '\0';
+  }
+}
+
 void print_stats(struct stats *stats, unsigned int n_img) {
   printf("\t\tpng\t\t\tbfg\n");
   printf("image filename\tratio\tenc ms\tdec ms\tratio\tenc ms"
@@ -27,7 +34,7 @@ void print_stats(struct stats *stats, unsigned int n_img) {
     char *name = s.name;
     const unsigned int png_ratio = (100 * s.png_bytes / s.raw_bytes);
     const unsigned int bfg_ratio = (100 * s.bfg_bytes / s.raw_bytes);
-    printf("%s\t%d%%\t%.04f\t%.04f\t%d%%\t%.04f\t%.04f\n", name, png_ratio,
+    printf("%s\t%d%%\t%.4g\t%.4g\t%d%%\t%.4g\t%.4g\n", name, png_ratio,
            s.png_enc_millis, s.png_dec_millis, bfg_ratio, s.bfg_enc_millis,
            s.bfg_dec_millis);
   }
@@ -44,10 +51,6 @@ int main(int argc, char **argv) {
   clock_t begin;
 
   for (unsigned int i = 0; i < n_img; i++) {
-    const char *name = basename(argv[i + 1]);
-    strncpy(stats_arr[i].name, name, FILENAME_LEN);
-    stats_arr[i].name[FILENAME_LEN] = '\0';
-
     struct png_data png;
     struct bfg_raw raw;
     struct bfg_info info;
@@ -87,12 +90,21 @@ int main(int argc, char **argv) {
     libpng_write("bfg_out.png", &raw_in);
     stats_arr[i].png_enc_millis = MILLIS_SINCE(begin);
 
+    // write image name to stats
+    // strip_ext modifies argv, so do after everything else
+    char *name = basename(argv[i + 1]);
+    strip_ext(name);
+    strncpy(stats_arr[i].name, name, FILENAME_LEN);
+    stats_arr[i].name[FILENAME_LEN] = '\0';
+
+    // write bytes to stats
     stats_arr[i].raw_bytes =
         sizeof(struct bfg_raw) + raw.width * raw.height * raw.n_channels;
     fseek(png.fp, 0L, SEEK_END);
     stats_arr[i].png_bytes = ftell(png.fp);
     stats_arr[i].bfg_bytes = info.n_bytes;
 
+    // cleanup
     libpng_free(&png);
     bfg_free(&raw, img);
     bfg_free(&raw_in, img_in);
