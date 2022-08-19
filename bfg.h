@@ -39,7 +39,7 @@ ASSUMPTIONS
 #define BFG_MAX_BYTES (UINT32_MAX)
 #define BFG_BIT_DEPTH (8)
 #define BFG_TAG_BITS (3)
-#define BFG_DIFF_BITS (2) /* must divide BFG_BIT_DEPTH */
+#define BFG_DIFF_BITS (4) /* must divide BFG_BIT_DEPTH */
 
 /* Optionally provide custom malloc and free implementations. */
 #ifndef BFG_MALLOC
