@@ -1,6 +1,6 @@
 /*
 
-BFG - Bloody Fast Graphics format for lossless image compression.
+BFG - Block-Based Fast Graphics format for lossless image compression.
 
 Seb Seager
 

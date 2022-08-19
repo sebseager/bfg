@@ -69,7 +69,8 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
       // TODO wraparound diffs
       // (0, 254) diff is 254 or -2
       // (254, 2) diff is -252 or 4
-      // max we can do is plus or minus 7
+      // max we can do is +7 or -8
+      // +7 is e.g. (252, 3) diff is -249 or 7
 
       const int32_t diff = curr - prev;
       const int32_t next_diff = next[0] - curr;
