@@ -40,7 +40,6 @@ int libpng_read(char *fpath, png_data_t png) {
   png->file_mode = 'r';
   png->fp = fopen(fpath, "rb");
   if (!png->fp) {
-    fprintf(stderr, "Could not open file %s\n", fpath);
     return 1;
   }
 
@@ -128,7 +127,6 @@ int libpng_decode(png_data_t png, bfg_raw_t raw) {
   raw->height = png_get_image_height(png->png_ptr, png->info_ptr);
   raw->n_channels = png_get_channels(png->png_ptr, png->info_ptr);
 
-
   // ensure we never need more than BFG_MAX_BYTES bytes
   if (raw->width >= BFG_MAX_BYTES / raw->height / raw->n_channels) {
     return 1;
@@ -163,7 +161,6 @@ int libpng_write(char *fpath, bfg_raw_t raw) {
   png.file_mode = 'w';
   png.fp = fopen(fpath, "wb");
   if (!png.fp) {
-    fprintf(stderr, "Could not write to %s\n", fpath);
     return 1;
   }
 
