@@ -39,6 +39,7 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
 
   const uint16_t max_block_entries =
       TWO_POWER(BFG_BIT_DEPTH - BFG_TAG_BITS) - 1;
+  const uint16_t color_range = TWO_POWER(BFG_BIT_DEPTH);
 
   // e.g. for 4 diff bits, allowed range is [-16,15]
   //      0000 = 0, 0001 = 1, 1000 = -1, 1001 = -2
@@ -72,9 +73,15 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
       // max we can do is +7 or -8
       // +7 is e.g. (252, 3) diff is -249 or 7
 
-      const int32_t diff = curr - prev;
-      const int32_t next_diff = next[0] - curr;
-      const int32_t next_next_diff = next[1] - next[0]; // TODO: do we need
+      int32_t diff = curr - prev;
+      int32_t next_diff = next[0] - curr;
+      int32_t next_next_diff = next[1] - next[0]; // TODO: do we need
+
+      diff = WRAP_DIFF(diff, min_diff, max_diff, color_range);
+      next_diff = WRAP_DIFF(next_diff, min_diff, max_diff, color_range);
+      next_next_diff =
+          WRAP_DIFF(next_next_diff, min_diff, max_diff, color_range);
+
       const int can_continue_run = diff == 0;
       const int can_start_run = can_continue_run && next_diff == 0;
       const int can_continue_diff = IN_RANGE(diff, min_diff, max_diff);
