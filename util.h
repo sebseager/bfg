@@ -9,6 +9,16 @@
 #define CEIL_DIV(num, den) (((num)-1) / (den) + 1)
 #define MILLIS_SINCE(time) (((double)clock() - (time)) * 1000 / CLOCKS_PER_SEC)
 
+// wrap a diff value from color_range - 1 to 0 and vice versa
+// for range of 256, allowed values are [0, 255]
+// e.g. if diff == -251, return +5
+#define WRAP_DIFF(diff, min_diff, max_diff, color_range)                       \
+  (IN_RANGE((diff), -(color_range) + 1, -(color_range) + (max_diff))           \
+       ? ((diff) + (color_range))                                              \
+       : (IN_RANGE((diff), (color_range) + (min_diff), (color_range)-1)        \
+              ? ((diff) - (color_range))                                       \
+              : ((diff))))
+
 // write width bits of value to byte_ptr, shifted offset bits to the left
 // so if *p = 0b0100001, after WRITE_BITS(p, 0b101, 3, 2), *p = 0b0110101
 #define WRITE_BITS(byte_ptr, value, width, offset)                             \

@@ -2,18 +2,6 @@
 #include "util.h"
 #include <stdlib.h>
 
-static int wrap_diff(int diff, int min_diff, int max_diff, int color_range) {
-  if (IN_RANGE(diff, -color_range + 1, -color_range + max_diff)) {
-    printf("%d -> %d\n", diff, diff + color_range);
-    return diff + color_range;
-  } else if (IN_RANGE(diff, color_range + min_diff, color_range - 1)) {
-    printf("%d -> %d\n", diff, diff - color_range);
-    return diff - color_range;
-  } else {
-    return diff;
-  }
-}
-
 void bfg_free(bfg_raw_t raw, bfg_img_t img) {
   if (raw) {
     BFG_FREE(raw->pixels);
@@ -51,7 +39,7 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
 
   const unsigned int max_block_entries =
       TWO_POWER(BFG_BIT_DEPTH - BFG_TAG_BITS) - 1;
-  const unsigned int color_range = TWO_POWER(BFG_BIT_DEPTH);
+  const int color_range = TWO_POWER(BFG_BIT_DEPTH);
 
   // e.g. for 4 diff bits, allowed range is [-16,15]
   //      0000 = 0, 0001 = 1, 1000 = -1, 1001 = -2
@@ -82,10 +70,10 @@ bfg_img_t bfg_encode(bfg_raw_t raw, bfg_info_t info) {
       int diff = curr - prev;
       int next_diff = next[0] - curr;
       int next_next_diff = next[1] - next[0];
-      diff = wrap_diff(diff, min_diff, max_diff, color_range);
-      next_diff = wrap_diff(next_diff, min_diff, max_diff, color_range);
+      diff = WRAP_DIFF(diff, min_diff, max_diff, color_range);
+      next_diff = WRAP_DIFF(next_diff, min_diff, max_diff, color_range);
       next_next_diff =
-          wrap_diff(next_next_diff, min_diff, max_diff, color_range);
+          WRAP_DIFF(next_next_diff, min_diff, max_diff, color_range);
 
       const int can_continue_run = diff == 0;
       const int can_start_run =
