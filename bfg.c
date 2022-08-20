@@ -4,8 +4,10 @@
 
 static int wrap_diff(int diff, int min_diff, int max_diff, int color_range) {
   if (IN_RANGE(diff, -color_range + 1, -color_range + max_diff)) {
+    printf("%d -> %d\n", diff, diff + color_range);
     return diff + color_range;
   } else if (IN_RANGE(diff, color_range + min_diff, color_range - 1)) {
+    printf("%d -> %d\n", diff, diff - color_range);
     return diff - color_range;
   } else {
     return diff;
@@ -245,8 +247,8 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
     return 1;
   }
 
-  uint8_t channel = 0;
   uint32_t block_header_idx = 0;
+  uint8_t channel = 0;
   uint32_t px_i = 0;
   uint8_t prev = 0;
 
@@ -266,7 +268,9 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
       for (uint32_t i = block_start; i < block_end; i++) {
         raw->pixels[(px_i++) * raw->n_channels + channel] = img[i];
         prev = img[i];
-        // printf("PX %d:\t%d\n", px_i - 1, prev); // DEBUG
+
+        // DEBUG
+        // printf("FL %d:\t%d\n", px_i - 1, prev);
       }
       break;
     }
@@ -275,7 +279,9 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
       block_bytes = 0;
       for (uint32_t i = 0; i < block_len; i++) {
         raw->pixels[(px_i++) * raw->n_channels + channel] = prev;
-        // printf("PX %d:\t%d\n", px_i - 1, prev); // DEBUG
+
+        // DEBUG
+        // printf("RN %d:\t%d\n", px_i - 1, prev);
       }
       break;
     }
@@ -295,7 +301,8 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
           raw->pixels[(px_i++) * raw->n_channels + channel] = prev;
           offset_bits -= BFG_DIFF_BITS;
 
-          // printf("PX %d:\t%d\n", px_i - 1, prev); // DEBUG
+          // DEBUG
+          // printf("DF %d:\t%d\n", px_i - 1, prev);
 
           // we might need to end early if we've exhausted block_len
           block_len--;
@@ -313,6 +320,7 @@ int bfg_decode(bfg_info_t info, bfg_img_t img, bfg_raw_t raw) {
     if (px_i == total_px) {
       channel++;
       px_i = 0;
+      prev = 0;
     }
   }
 
