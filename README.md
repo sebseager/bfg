@@ -1,6 +1,6 @@
 # BFG – Block-Based Fast Graphics
 
-An experiment with fast lossless image conversion.
+An experiment with fast lossless image conversion in C.
 
 ## Usage
 
