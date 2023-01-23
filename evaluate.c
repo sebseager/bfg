@@ -3,6 +3,7 @@
 #include <libgen.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #define FILENAME_LEN (14)
 
@@ -77,6 +78,7 @@ int main(int argc, char **argv) {
     // construct output path by appending .bfg
     char out_path[strlen(base) + 16];
     strcpy(out_path, "output/");
+    mkdir(out_path, 0777);
     strcat(out_path, base);
     strcat(out_path, ".bfg");
     if (bfg_write(out_path, &info, img)) {
