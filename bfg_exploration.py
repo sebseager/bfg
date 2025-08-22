@@ -1,111 +1,128 @@
-#! /usr/bin/env python3
-
 import sys
 import numpy as np
-from PIL import Image
-import zlib
+from matplotlib.image import imread
 
-# ------------------------------
-# Paeth predictor
-# ------------------------------
-def paeth(a, b, c):
-    p = a + b - c
-    pa = abs(p - a)
-    pb = abs(p - b)
-    pc = abs(p - c)
-    if pa <= pb and pa <= pc:
-        return a
-    elif pb <= pc:
-        return b
-    else:
-        return c
+def bxc_encode_block(block):
+    bs, _, c = block.shape  # assume square block
+    out = bytearray()
+    for ch in range(c):
+        rows = []
+        for y in range(bs):
+            row = 0
+            for x in range(bs):
+                row |= (int(block[y, x, ch]) << ((bs - 1 - x) * 8))
+            rows.append(row)
+        out.extend(rows[0].to_bytes(bs, 'big'))
+        prev = rows[0]
+        for r in rows[1:]:
+            xor = r ^ prev
+            if xor == 0:
+                out.append(0)
+            else:
+                xor_b = xor.to_bytes(bs, 'big')
+                leading_zeros = 0
+                for b in xor_b:
+                    if b == 0:
+                        leading_zeros += 1
+                    else:
+                        break
+                length = bs - leading_zeros
+                out.append(length)
+                out.extend(xor_b[leading_zeros:])
+            prev = r
+    return out
 
-predictors = [
-    lambda arr, c, x, y: paeth(
-        arr[y, x-1, c] if x > 0 else 0,
-        arr[y-1, x, c] if y > 0 else 0,
-        arr[y-1, x-1, c] if x > 0 and y > 0 else 0
-    )
-]
+def encode_image(original_image):
+    h, w, c = original_image.shape
+    bs = 8
+    pad_h = (bs - h % bs) % bs
+    pad_w = (bs - w % bs) % bs
+    padded_image = np.pad(original_image, ((0, pad_h), (0, pad_w), (0, 0)), mode='constant', constant_values=0)
+    ph, pw, _ = padded_image.shape
+    out = bytearray(b'BXC\x00')
+    out.extend(h.to_bytes(4, 'big'))
+    out.extend(w.to_bytes(4, 'big'))
+    out.append(c)
+    out.append(bs)
+    for by in range(0, ph, bs):
+        for bx in range(0, pw, bs):
+            block = padded_image[by:by + bs, bx:bx + bs, :]
+            out.extend(bxc_encode_block(block))
+    return bytes(out)
 
-# ------------------------------
-# Encoding function
-# ------------------------------
-def encode_image(arr, block_size=16):
-    height, width, channels = arr.shape
-    residuals = []
+def bxc_decode_block(comp, pos, channels, block_size):
+    block = np.zeros((block_size, block_size, channels), dtype=np.uint8)
+    for ch in range(channels):
+        first_row_b = comp[pos:pos + block_size]
+        pos += block_size
+        first_row = int.from_bytes(first_row_b, 'big')
+        for x in range(block_size):
+            block[0, x, ch] = (first_row >> ((block_size - 1 - x) * 8)) & 0xFF
+        prev = first_row
+        for y in range(1, block_size):
+            len_byte = comp[pos]
+            pos += 1
+            if len_byte == 0:
+                row = prev
+            else:
+                xor_b = b'\x00' * (block_size - len_byte) + comp[pos:pos + len_byte]
+                pos += len_byte
+                xor_val = int.from_bytes(xor_b, 'big')
+                row = prev ^ xor_val
+            for x in range(block_size):
+                block[y, x, ch] = (row >> ((block_size - 1 - x) * 8)) & 0xFF
+            prev = row
+    return block, pos
 
-    for by in range(0, height, block_size):
-        for bx in range(0, width, block_size):
-            for c in range(channels):
-                block = arr[by:by+block_size, bx:bx+block_size, c].astype(np.int32)
-                # Apply predictor
-                pred_block = np.zeros_like(block)
-                for y in range(block.shape[0]):
-                    for x in range(block.shape[1]):
-                        pred_block[y, x] = predictors[0](arr, c, bx + x, by + y)
-                residual_block = block - pred_block
-                residuals.extend(residual_block.flatten())
-
-    residual_bytes = bytes([(r + 256) % 256 for r in residuals])
-    compressed = zlib.compress(residual_bytes)
-    return compressed, arr.shape
-
-# ------------------------------
-# Decoding function
-# ------------------------------
-def decode_image(compressed, shape, block_size=16):
-    height, width, channels = shape
-    decompressed = zlib.decompress(compressed)
-    residuals = [int(b if b < 128 else b - 256) for b in decompressed]
-
-    arr = np.zeros((height, width, channels), dtype=np.uint8)
-    idx = 0
-
-    for by in range(0, height, block_size):
-        for bx in range(0, width, block_size):
-            for c in range(channels):
-                h_block = min(block_size, height - by)
-                w_block = min(block_size, width - bx)
-                block_flat = residuals[idx: idx + h_block * w_block]
-                idx += h_block * w_block
-                block = np.array(block_flat, dtype=np.int32).reshape((h_block, w_block))
-                # Apply predictor
-                for y in range(h_block):
-                    for x in range(w_block):
-                        pred = predictors[0](arr, c, bx + x, by + y)
-                        val = (pred + block[y, x]) % 256
-                        arr[by + y, bx + x, c] = val
-
-    return arr
-
-# ------------------------------
-# Main
-# ------------------------------
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python bfg_exploration.py image1.png image2.jpg ...")
-        return
-
-    for img_path in sys.argv[1:]:
-        img = Image.open(img_path).convert("RGB")
-        arr = np.array(img, dtype=np.uint8)
-
-        # Encode
-        compressed, shape = encode_image(arr)
-
-        # Decode
-        decoded_arr = decode_image(compressed, shape)
-
-        # Verify lossless
-        assert np.array_equal(arr, decoded_arr), f"Lossless check failed for {img_path}"
-
-        # Compare sizes
-        png_size = len(open(img_path, "rb").read())
-        custom_size = len(compressed)
-
-        print(f"{img_path}: PNG size = {png_size} bytes, custom predictor+zlib = {custom_size} bytes, lossless = True")
-        print(f"Compression ratio: {custom_size / png_size:.3f}")
+def decode_image(comp):
+    if comp[:4] != b'BXC\x00':
+        raise ValueError("Invalid magic")
+    pos = 4
+    h = int.from_bytes(comp[pos:pos + 4], 'big')
+    pos += 4
+    w = int.from_bytes(comp[pos:pos + 4], 'big')
+    pos += 4
+    c = comp[pos]
+    pos += 1
+    bs = comp[pos]
+    pos += 1
+    pad_h = (bs - h % bs) % bs
+    pad_w = (bs - w % bs) % bs
+    ph = h + pad_h
+    pw = w + pad_w
+    image = np.zeros((ph, pw, c), dtype=np.uint8)
+    for by in range(0, ph, bs):
+        for bx in range(0, pw, bs):
+            block, pos = bxc_decode_block(comp, pos, c, bs)
+            image[by:by + bs, bx:bx + bs, :] = block
+    return image[:h, :w, :]
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) < 2:
+        print("Usage: python script.py image1.png [image2.png ...]")
+        sys.exit(1)
+    for fname in sys.argv[1:]:
+        img = imread(fname)
+        if img.dtype != np.uint8:
+            if img.dtype == np.float32 or img.dtype == np.float64:
+                img = (img * 255).astype(np.uint8)
+            else:
+                raise ValueError(f"Unsupported dtype {img.dtype}")
+        if len(img.shape) == 2:
+            img = np.stack([img] * 3, axis=2)  # grayscale to RGB
+        elif img.shape[2] == 1:
+            img = np.repeat(img, 3, axis=2)
+        elif img.shape[2] not in (3, 4):
+            raise ValueError(f"Unsupported channels {img.shape[2]}")
+        comp = encode_image(img)
+        original_size = img.nbytes
+        compressed_size = len(comp)
+        ratio = original_size / compressed_size if compressed_size > 0 else 0
+        dec_img = decode_image(comp)
+        lossless = np.array_equal(img, dec_img)
+        print(f"File: {fname}")
+        print(f"Original size: {original_size} bytes")
+        print(f"Compressed size: {compressed_size} bytes")
+        print(f"Compression ratio: {ratio:.2f}")
+        print(f"Lossless round-trip: {lossless}")
+        print()
