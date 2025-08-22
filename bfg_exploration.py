@@ -29,51 +29,6 @@ predictors = [
 ]
 
 # ------------------------------
-# Integer wavelet transform (CDF 5/3)
-# ------------------------------
-def iwt_2d(block):
-    """Apply 2D integer wavelet transform (CDF 5/3) to a block."""
-    block = block.astype(np.int32)
-    h, w = block.shape
-
-    # Horizontal pass
-    for y in range(h):
-        for x in range(1, w-1, 2):
-            block[y, x] -= (block[y, x-1] + block[y, x+1]) // 2
-        for x in range(0, w, 2):
-            block[y, x] += (block[y, x-1] + block[y, x+1] + 2) // 4 if 0 < x < w-1 else 0
-
-    # Vertical pass
-    for x in range(w):
-        for y in range(1, h-1, 2):
-            block[y, x] -= (block[y-1, x] + block[y+1, x]) // 2
-        for y in range(0, h, 2):
-            block[y, x] += (block[y-1, x] + block[y+1, x] + 2) // 4 if 0 < y < h-1 else 0
-
-    return block
-
-def iwt_2d_inverse(block):
-    """Inverse 2D integer wavelet transform."""
-    block = block.astype(np.int32)
-    h, w = block.shape
-
-    # Vertical inverse
-    for x in range(w):
-        for y in range(0, h, 2):
-            block[y, x] -= (block[y-1, x] + block[y+1, x] + 2) // 4 if 0 < y < h-1 else 0
-        for y in range(1, h-1, 2):
-            block[y, x] += (block[y-1, x] + block[y+1, x]) // 2
-
-    # Horizontal inverse
-    for y in range(h):
-        for x in range(0, w, 2):
-            block[y, x] -= (block[y-1, x] + block[y+1, x] + 2) // 4 if 0 < x < w-1 else 0
-        for x in range(1, w-1, 2):
-            block[y, x] += (block[y, x-1] + block[y, x+1]) // 2
-
-    return block
-
-# ------------------------------
 # Encoding function
 # ------------------------------
 def encode_image(arr, block_size=16):
@@ -90,8 +45,6 @@ def encode_image(arr, block_size=16):
                     for x in range(block.shape[1]):
                         pred_block[y, x] = predictors[0](arr, c, bx + x, by + y)
                 residual_block = block - pred_block
-                # Apply integer wavelet
-                residual_block = iwt_2d(residual_block)
                 residuals.extend(residual_block.flatten())
 
     residual_bytes = bytes([(r + 256) % 256 for r in residuals])
@@ -117,8 +70,6 @@ def decode_image(compressed, shape, block_size=16):
                 block_flat = residuals[idx: idx + h_block * w_block]
                 idx += h_block * w_block
                 block = np.array(block_flat, dtype=np.int32).reshape((h_block, w_block))
-                # Inverse integer wavelet
-                block = iwt_2d_inverse(block)
                 # Apply predictor
                 for y in range(h_block):
                     for x in range(w_block):
@@ -133,7 +84,7 @@ def decode_image(compressed, shape, block_size=16):
 # ------------------------------
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python rgb_block_predictor_iwt.py image1.png image2.jpg ...")
+        print("Usage: python bfg_exploration.py image1.png image2.jpg ...")
         return
 
     for img_path in sys.argv[1:]:
@@ -153,7 +104,7 @@ def main():
         png_size = len(open(img_path, "rb").read())
         custom_size = len(compressed)
 
-        print(f"{img_path}: PNG size = {png_size} bytes, custom predictor+IWT+zlib = {custom_size} bytes, lossless = True")
+        print(f"{img_path}: PNG size = {png_size} bytes, custom predictor+zlib = {custom_size} bytes, lossless = True")
         print(f"Compression ratio: {custom_size / png_size:.3f}")
 
 if __name__ == "__main__":
