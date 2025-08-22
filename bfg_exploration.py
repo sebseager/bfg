@@ -1,6 +1,8 @@
 import sys
 import numpy as np
 from matplotlib.image import imread
+from PIL import Image
+import io
 
 def bxc_encode_block(block):
     bs, _, c = block.shape  # assume square block
@@ -117,12 +119,21 @@ if __name__ == "__main__":
         comp = encode_image(img)
         original_size = img.nbytes
         compressed_size = len(comp)
-        ratio = original_size / compressed_size if compressed_size > 0 else 0
+        ratio = compressed_size / original_size if original_size > 0 else 0
+        
+        # Compare with libpng compression
+        # Convert numpy array to PIL Image and compress with PNG
+        pil_img = Image.fromarray(img)
+        png_buffer = io.BytesIO()
+        pil_img.save(png_buffer, format='PNG', optimize=True)
+        png_compressed = png_buffer.getvalue()
+        png_size = len(png_compressed)
+        png_ratio = png_size / original_size if original_size > 0 else 0
+        
+        # Print comparison
+        print(f"File: {fname} | {original_size} bytes -> {compressed_size} bytes | {ratio:.2f} vs {png_ratio:.2f} (PNG)")
+        
         dec_img = decode_image(comp)
         lossless = np.array_equal(img, dec_img)
-        print(f"File: {fname}")
-        print(f"Original size: {original_size} bytes")
-        print(f"Compressed size: {compressed_size} bytes")
-        print(f"Compression ratio: {ratio:.2f}")
-        print(f"Lossless round-trip: {lossless}")
+        assert lossless, "Lossless round-trip failed"
         print()
