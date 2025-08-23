@@ -10,7 +10,7 @@ OP_RAW3      = 0xE0  # 11100000
 OP_RAW4      = 0xE1  # 11100001
 
 def _hash_idx(r,g,b,a):  # 64-entry cache, distinct from QOI’s hash
-    return ( (r*5) ^ (g*7) ^ (b*9) ^ (a*11) ) & 63
+    return ((r*5) ^ (g*7) ^ (b*9) ^ (a*11)) & 63
 
 def bx2_encode(img: np.ndarray) -> bytes:
     h, w, c = img.shape
@@ -20,11 +20,10 @@ def bx2_encode(img: np.ndarray) -> bytes:
 
     cache = [(0,0,0,0)]*64
     run = 0
-    prev = (0,0,0,255) if c==4 else (0,0,0,255)  # alpha virtual=255 for RGB
+    prev = (0,0,0,255)  # alpha virtual=255 for RGB
     up_row = [(0,0,0,255)]*w
 
     for y in range(h):
-        # swap in new up_row; build next_up as current row as we go
         next_up = [None]*w
         for x in range(w):
             px = img[y, x]
@@ -105,6 +104,8 @@ def bx2_decode(data: bytes) -> np.ndarray:
     h = int.from_bytes(data[pos:pos+4],'big'); pos += 4
     w = int.from_bytes(data[pos:pos+4],'big'); pos += 4
     c = data[pos]; pos += 1
+    if c not in (3,4):
+        raise ValueError("unsupported channel count")
     out = np.zeros((h,w,c), dtype=np.uint8)
 
     cache = [(0,0,0,0)]*64
@@ -112,6 +113,19 @@ def bx2_decode(data: bytes) -> np.ndarray:
     up_row = [(0,0,0,255)]*w
 
     x = y = 0
+
+    def rebuild_up_row():
+        nonlocal up_row, x, y
+        # Called immediately after finishing a row (x==0, y>0)
+        if y == 0:
+            up_row = [(0,0,0,255)]*w
+        else:
+            row = out[y-1]
+            if c == 3:
+                up_row = [(int(px[0]), int(px[1]), int(px[2]), 255) for px in row]
+            else:
+                up_row = [(int(px[0]), int(px[1]), int(px[2]), int(px[3])) for px in row]
+
     def emit(r,g,b,a):
         nonlocal x,y,prev
         if c==3:
@@ -123,11 +137,13 @@ def bx2_decode(data: bytes) -> np.ndarray:
         if x == w:
             x = 0
             y += 1
+            if y <= h:
+                rebuild_up_row()
 
     while y < h:
         b0 = data[pos]; pos += 1
         t = b0 & 0xC0
-        if t == 0xC0:  # RUN (110xxxxx) or RAW (>=0xE0)
+        if t == 0xC0:  # RUN or RAW
             if b0 >= 0xE0:  # RAW3/RAW4
                 if b0 == OP_RAW3:
                     r,g,b = data[pos], data[pos+1], data[pos+2]; pos += 3
@@ -144,8 +160,8 @@ def bx2_decode(data: bytes) -> np.ndarray:
                     raise ValueError("reserved RAW opcode")
             else:
                 run = (b0 & 0x1F) + 1
+                r,g,b,a = prev
                 for _ in range(run):
-                    r,g,b,a = prev
                     emit(r,g,b,a)
         elif t == 0x80:  # INDEX
             idx = b0 & 0x3F
@@ -159,7 +175,7 @@ def bx2_decode(data: bytes) -> np.ndarray:
             r = (pr + dr) & 0xFF
             g = (pg + dg) & 0xFF
             b = (pb + db) & 0xFF
-            a = prev[3]
+            a = pa
             idx = _hash_idx(r,g,b,a)
             cache[idx] = (r,g,b,a)
             emit(r,g,b,a)
@@ -167,8 +183,7 @@ def bx2_decode(data: bytes) -> np.ndarray:
             dr = ((b0>>4)&0x3) - 1
             dg = ((b0>>2)&0x3) - 1
             db = (b0&0x3) - 1
-            up = up_row[x]
-            ur,ug,ub,ua = up
+            ur,ug,ub,ua = up_row[x]
             r = (ur + dr) & 0xFF
             g = (ug + dg) & 0xFF
             b = (ub + db) & 0xFF
@@ -179,23 +194,13 @@ def bx2_decode(data: bytes) -> np.ndarray:
         else:
             raise ValueError("unknown opcode")
 
-        # maintain up_row
-        if y < h:
-            if x == 0:
-                # new row just emitted, rebuild up_row from previous out row
-                if y == 0:
-                    up_row = [(0,0,0,255)]*w
-                else:
-                    row = out[y-1] if c==3 else out[y-1]
-                    up_row = [ (int(px[0]), int(px[1]), int(px[2]), (int(px[3]) if c==4 else 255)) for px in row ]
-
     return out
 
 if __name__ == "__main__":
-    import sys
     from matplotlib.image import imread
     from PIL import Image
     import io
+    import png
 
     if len(sys.argv) < 2:
         print("Usage: python bx2.py image1.png [image2.png ...]")
@@ -223,7 +228,7 @@ if __name__ == "__main__":
         compressed_size = len(comp)
         ratio = compressed_size / original_size if original_size > 0 else 0
 
-        # Compare with libpng
+        # Compare with libpng (via PIL)
         pil_img = Image.fromarray(img)
         png_buffer = io.BytesIO()
         pil_img.save(png_buffer, format='PNG', optimize=True)
@@ -231,9 +236,25 @@ if __name__ == "__main__":
         png_size = len(png_compressed)
         png_ratio = png_size / original_size if original_size > 0 else 0
 
+        # Compare with pypng (pure Python)
+        pypng_buffer = io.BytesIO()
+        h, w, c = img.shape
+        if c == 3:
+            png_writer = png.Writer(width=w, height=h, greyscale=False, alpha=False)
+            img_2d = img.reshape(h, w*3)
+        else:
+            png_writer = png.Writer(width=w, height=h, greyscale=False, alpha=True)
+            img_2d = img.reshape(h, w*4)
+        png_writer.write(pypng_buffer, img_2d)
+        pypng_compressed = pypng_buffer.getvalue()
+        pypng_size = len(pypng_compressed)
+        pypng_ratio = pypng_size / original_size if original_size > 0 else 0
+
         # Print results
-        print(f"File: {fname} | {original_size} bytes -> {compressed_size} bytes | "
-              f"{ratio:.2f} vs {png_ratio:.2f} (PNG)")
+        print(f"File: {fname} | {original_size} bytes -> {compressed_size} bytes")
+        print(f"  this:    {ratio:.3f}")
+        print(f"  libpng:  {png_ratio:.3f}")
+        print(f"  pypng:   {pypng_ratio:.3f}")
 
         # Verify round trip
         dec_img = bx2_decode(comp)
