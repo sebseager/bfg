@@ -56,10 +56,10 @@ def bx2_encode(img: np.ndarray) -> bytes:
                 prev = cur
                 continue
 
-            # DIFF-LEFT-SMALL
+            # DIFF-LEFT-SMALL (only if alpha matches prev)
             pr,pg,pb,pa = prev
             dr, dg, db = r-pr, g-pg, b-pb
-            if (-1 <= dr <= 2) and (-1 <= dg <= 2) and (-1 <= db <= 2):
+            if (a == pa) and (-1 <= dr <= 2) and (-1 <= dg <= 2) and (-1 <= db <= 2):
                 code = ((dr+1)<<4) | ((dg+1)<<2) | (db+1)
                 out.append(OP_DIFF_LEFT | code)
                 cache[idx] = cur
@@ -67,10 +67,10 @@ def bx2_encode(img: np.ndarray) -> bytes:
                 prev = cur
                 continue
 
-            # DIFF-UP-SMALL (only if y>0)
+            # DIFF-UP-SMALL (only if y>0 and alpha matches up)
             ur,ug,ub,ua = up_row[x] if y>0 else (0,0,0,255)
             dr, dg, db = r-ur, g-ug, b-ub
-            if y>0 and (-1 <= dr <= 2) and (-1 <= dg <= 2) and (-1 <= db <= 2):
+            if y>0 and (a == ua) and (-1 <= dr <= 2) and (-1 <= dg <= 2) and (-1 <= db <= 2):
                 code = ((dr+1)<<4) | ((dg+1)<<2) | (db+1)
                 out.append(OP_DIFF_UP | code)
                 cache[idx] = cur
