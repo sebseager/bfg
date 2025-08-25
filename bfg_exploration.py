@@ -2,14 +2,14 @@ import numpy as np
 import sys
 
 BX3_MAGIC = b'BX3\x00'
-OP_RSML      = 0x00  # 00xxxxxx
-OP_RECENT    = 0x60  # 011000xx (xx = 0-3)
-OP_INDEX     = 0x80  # 10xxxxxx
-OP_ZRLE      = 0xC0  # 110xxxxx, len=low5+1 (1..32)
-OP_RAW3      = 0xE0  # 11100000
-OP_RAW4      = 0xE1  # 11100001
-OP_RMED      = 0xE2  # 11100010
-OP_AONLY     = 0xE3  # 11100011
+OP_RSML      = 0x00  # 00xxxxxx - Residual Small: encodes small color differences (-2 to +1) for RGB channels with no alpha change
+OP_RECENT    = 0x60  # 011000xx (xx = 0-3) - Recent Colors: references one of the 4 most recently used colors
+OP_INDEX     = 0x80  # 10xxxxxx - Index Cache: references a color from the 64-entry hash-based color cache
+OP_ZRLE      = 0xC0  # 110xxxxx, len=low5+1 (1..32) - Zero Run Length Encoding: repeats the predicted color for 1-32 pixels
+OP_RAW3      = 0xE0  # 11100000 - Raw RGB: stores uncompressed RGB values (3 bytes)
+OP_RAW4      = 0xE1  # 11100001 - Raw RGBA: stores uncompressed RGBA values (4 bytes)
+OP_RMED      = 0xE2  # 11100010 - Residual Medium: encodes medium color differences (-8 to +7) for RGB channels with no alpha change
+OP_AONLY     = 0xE3  # 11100011 - Alpha Only: stores only the alpha channel value when RGB matches prediction
 
 def _hash_idx(r,g,b,a):  # 64-entry cache
     return ((r*5) ^ (g*7) ^ (b*9) ^ (a*11)) & 63
