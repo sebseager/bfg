@@ -1,4 +1,4 @@
-# BFG – Block-Based Fast Graphics
+# BFG
 
 An experiment with fast lossless image conversion in C.
 
@@ -23,4 +23,4 @@ This is experimental code and has not been rigorously tested.
 
 ## License
 
-This library is available under the MIT License. See the `LICENSE` file for details.
+This library is available under the [MIT License](LICENSE).

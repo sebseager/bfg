@@ -8,3 +8,4 @@ evaluate
 *.bfg
 images/
 output/
+test_bfg
